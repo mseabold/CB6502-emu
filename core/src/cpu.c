@@ -23,10 +23,6 @@
                      //support BCD operation.
 #endif
 
-#ifndef SUPPORT_65C02
-#define SUPPORT_65C02 1
-#endif
-
 #define FLAG_CARRY     0x01
 #define FLAG_ZERO      0x02
 #define FLAG_INTERRUPT 0x04
@@ -359,7 +355,7 @@ static void bpl() {
     }
 }
 
-#if SUPPORT_65C02
+#ifdef SUPPORT_65C02
 static void bra() {
     oldpc = pc;
     pc += reladdr;
@@ -808,7 +804,7 @@ static void tya() {
 #endif
 
 
-#if SUPPORT_65C02
+#ifdef SUPPORT_65C02
 static void (*addrtable[256])() = {
 /*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |     */
 /* 0 */     imp, indx,  imp, indx,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imm, abso, abso, abso, abso, /* 0 */
