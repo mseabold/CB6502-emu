@@ -10,6 +10,9 @@
 #include "acia.h"
 #include "via.h"
 #include "mem.h"
+#include "sdcard.h"
+
+#include "bitbang_spi.h"
 
 #define ROM_SIZE 0x8000
 #define RAM_SIZE 0x8000
@@ -130,11 +133,14 @@ int main(int argc, char *argv[])
     }
 
     via_init();
+    via_register_protocol(bitbang_spi_get_prot(), NULL);
+    printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
     init6502(&mem_space, true);
 
+    if(0)
     {
         char buf[16];
-        //fgets(buf, 16, stdin);
+        fgets(buf, 16, stdin);
     }
 
     while(1)

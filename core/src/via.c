@@ -19,6 +19,14 @@
 #define IER   0x0E
 #define DA2   0x0F
 
+#define MAX_PROTOS 8
+
+typedef struct proto_entry_s
+{
+    const via_protocol_t *proto;
+    void *userdata;
+} proto_entry_t;
+
 typedef struct VIACxt_s
 {
     uint8_t data_a;
@@ -26,9 +34,8 @@ typedef struct VIACxt_s
     uint8_t data_b;
     uint8_t dirmask_b;
 
-    uint8_t SPI_cnt;
-    uint8_t SPI_out;
-    bool spi_clk_state;
+
+    proto_entry_t protocols[MAX_PROTOS];
 } VIACxt_t;
 
 static VIACxt_t VIACxt;
@@ -41,38 +48,33 @@ bool via_init(void)
 
 void via_write(uint8_t reg, uint8_t val)
 {
+    uint8_t i;
     switch(reg)
     {
         case DDRA:
             VIACxt.dirmask_a = val;
             break;
         case DATAA:
-            VIACxt.data_a = val & VIACxt.dirmask_a;
+            VIACxt.data_a = val;
+
+            for(i=0; i<MAX_PROTOS; ++i)
+            {
+                if(VIACxt.protocols[i].proto != NULL)
+                    VIACxt.protocols[i].proto->put(VIA_PORTA, val, VIACxt.protocols[i].userdata);
+            }
             break;
         case DDRB:
             VIACxt.dirmask_b = val;
             printf("dirmask write: %02x\n", val);
             break;
         case DATAB:
-            VIACxt.data_b = val & VIACxt.dirmask_b;
+            VIACxt.data_b = val;
 
-            if(VIACxt.data_b & 0x01 && !VIACxt.spi_clk_state)
+            for(i=0; i<MAX_PROTOS; ++i)
             {
-                VIACxt.SPI_out <<= 1;
-                VIACxt.SPI_out |= (VIACxt.data_b & 0x02) ? 1 : 0;
-
-                if(++VIACxt.SPI_cnt == 8)
-                {
-                    /* Byte complete. */
-                    printf("SPI out 0x%02x\n", VIACxt.SPI_out);
-
-                    VIACxt.SPI_cnt = 0;
-                    VIACxt.SPI_out = 0;
-                }
+                if(VIACxt.protocols[i].proto != NULL)
+                    VIACxt.protocols[i].proto->put(VIA_PORTB, val, VIACxt.protocols[i].userdata);
             }
-
-            VIACxt.spi_clk_state = (VIACxt.data_b & 0x01) == 0x01;
-
             break;
 
     }
@@ -81,6 +83,7 @@ void via_write(uint8_t reg, uint8_t val)
 uint8_t via_read(uint8_t reg)
 {
     uint8_t out;
+    uint8_t i;
 
     switch(reg)
     {
@@ -88,9 +91,69 @@ uint8_t via_read(uint8_t reg)
             return VIACxt.dirmask_a;
         case DDRB:
             return VIACxt.dirmask_b;
+        case DATAA:
+            // "Pull up" pins before asking protocols to drive them
+            out = 0xff;
+
+            for(i=0; i<MAX_PROTOS; ++i)
+            {
+                if(VIACxt.protocols[i].proto != NULL)
+                    VIACxt.protocols[i].proto->get(VIA_PORTA, &out, VIACxt.protocols[i].userdata);
+            }
+
+            // Combine input bits with output bits from data register
+            out = (out & ~VIACxt.dirmask_a) | (VIACxt.data_a & VIACxt.dirmask_a);
+            return out;
         case DATAB:
-            out = VIACxt.data_b;
+            // "Pull up" pins before asking protocols to drive them
+            out = 0xff;
+
+            for(i=0; i<MAX_PROTOS; ++i)
+            {
+                if(VIACxt.protocols[i].proto != NULL)
+                    VIACxt.protocols[i].proto->get(VIA_PORTB, &out, VIACxt.protocols[i].userdata);
+            }
+
+            // Combine input bits with output bits from data register
+            out = (out & ~VIACxt.dirmask_b) | (VIACxt.data_b & VIACxt.dirmask_b);
             return out;
     }
     return 0;
+}
+
+bool via_register_protocol( const via_protocol_t *protocol, void *userdata)
+{
+    uint8_t i;
+
+    if(protocol == NULL || protocol->put == NULL || protocol->get && NULL)
+        return false;
+
+    for(i=0; i<MAX_PROTOS; ++i)
+    {
+        if(VIACxt.protocols[i].proto == NULL)
+        {
+            VIACxt.protocols[i].proto = protocol;
+            VIACxt.protocols[i].userdata = userdata;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void via_unregister_protocol(const via_protocol_t *protocol)
+{
+    uint8_t i;
+
+    if(protocol == NULL)
+        return;
+
+    for(i=0; i<MAX_PROTOS; ++i)
+    {
+        if(VIACxt.protocols[i].proto == protocol)
+        {
+            VIACxt.protocols[i].proto = NULL;
+            VIACxt.protocols[i].userdata = NULL;
+        }
+    }
 }
