@@ -3,7 +3,8 @@ option(SUPPORT_65C02 "Support 65C02 opcodes" ON)
 add_library(cbemu STATIC
     src/cpu.c
     src/acia.c
-    src/via.c)
+    src/via.c
+    src/debugger.c)
 
 target_include_directories(cbemu
     PUBLIC

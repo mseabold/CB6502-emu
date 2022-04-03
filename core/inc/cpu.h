@@ -10,7 +10,24 @@
 
 #include "mem.h"
 
-/* 
+typedef enum
+{
+    REG_A,
+    REG_X,
+    REG_Y,
+    REG_PC,
+    REG_S
+} cpu_reg_t;
+
+typedef struct cpu_regs_s
+{
+    uint8_t a;
+    uint8_t x;
+    uint8_t y;
+    uint8_t sp;
+    uint16_t pc;
+} cpu_regs_t;
+/*
  * Callback function prototypes for 6502 memory space access.
  */
 
@@ -45,4 +62,9 @@ void step6502(void);
  * since it is level triggered.
  */
 void disassemble(size_t bufLen, char *buf);
-bool isBreakpoint(uint16_t pc);
+
+uint16_t cpu_get_reg(cpu_reg_t reg);
+void cpu_get_regs(cpu_regs_t *regs);
+
+uint8_t cpu_get_op_len(void);
+bool cpu_is_subroutine(void);

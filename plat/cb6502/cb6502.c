@@ -11,6 +11,7 @@
 #include "via.h"
 #include "mem.h"
 #include "sdcard.h"
+#include "debugger.h"
 
 #include "bitbang_spi.h"
 
@@ -51,7 +52,7 @@ static uint8_t memory_read(uint16_t address)
 #ifdef STEP
     printf("0x%04x 0x%02x R\n", address, value);
 #endif
-    printf("0x%04x 0x%02x R\n", address, value);
+    //printf("0x%04x 0x%02x R\n", address, value);
 
     return value;
 }
@@ -74,7 +75,7 @@ static void memory_write(uint16_t address, uint8_t value)
 #ifdef STEP
     printf("0x%04x 0x%02x W\n", address, value);
 #endif
-    printf("0x%04x 0x%02x W\n", address, value);
+    //printf("0x%04x 0x%02x W\n", address, value);
 }
 
 static mem_space_t mem_space = {
@@ -142,6 +143,8 @@ int main(int argc, char *argv[])
         char buf[16];
         fgets(buf, 16, stdin);
     }
+
+    debug_run();
 
     while(1)
     {
