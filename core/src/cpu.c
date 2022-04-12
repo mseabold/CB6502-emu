@@ -1271,8 +1271,11 @@ uint16_t cpu_get_reg(cpu_reg_t reg)
         case REG_PC:
             val = pc;
             break;
-        case REG_S:
+        case REG_SP:
             val = sp;
+            break;
+        case REG_S:
+            val = status;
             break;
         default:
             val = 0xffff;
@@ -1291,6 +1294,7 @@ void cpu_get_regs(cpu_regs_t *regs)
         regs->y = y;
         regs->sp = sp;
         regs->pc = pc;
+        regs->s = status;
     }
 }
 

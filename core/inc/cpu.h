@@ -16,6 +16,7 @@ typedef enum
     REG_X,
     REG_Y,
     REG_PC,
+    REG_SP,
     REG_S
 } cpu_reg_t;
 
@@ -26,6 +27,7 @@ typedef struct cpu_regs_s
     uint8_t y;
     uint8_t sp;
     uint16_t pc;
+    uint8_t s;
 } cpu_regs_t;
 /*
  * Callback function prototypes for 6502 memory space access.
