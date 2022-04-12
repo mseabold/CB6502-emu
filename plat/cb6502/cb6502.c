@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
 
     debug_run();
 
+#if 0
     while(1)
     {
         char buf[16];
@@ -156,6 +157,7 @@ int main(int argc, char *argv[])
     }
 
     close(rom_fd);
+#endif
 
     return 0;
 }

@@ -1,9 +1,11 @@
+#include <bits/types/sigset_t.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 /* TODO portability from linux */
 #include <strings.h>
+#include <signal.h>
 
 #include "debugger.h"
 #include "cpu.h"
@@ -17,7 +19,7 @@
 
 typedef struct dbg_cxt_s
 {
-    bool broken;
+    volatile bool broken;
     uint32_t breakpoints[MAX_BREAKPOINTS];
 } dbg_cxt_t;
 
@@ -225,6 +227,11 @@ static bool dbg_eval_breakpoints(dbg_cxt_t *cxt, uint16_t pc)
     return false;
 }
 
+void sighandle(int s)
+{
+    cxt.broken = true;
+}
+
 void debug_run(void)
 {
     char disbuf[256];
@@ -232,11 +239,19 @@ void debug_run(void)
     char *input;
     uint32_t num_params;
     cmd_param_t params[MAX_PARAMS];
+    struct sigaction sigact;
+    struct sigaction oldact;
 
     bool exit = false;
     dbg_cmd_t *cmd = NULL;
 
     cxt.broken = true;
+
+    sigact.sa_flags = 0;
+    sigemptyset(&sigact.sa_mask);
+    sigact.sa_handler = sighandle;
+
+    sigaction(SIGINT, &sigact, &oldact);
 
     while(!exit)
     {
@@ -284,4 +299,7 @@ void debug_run(void)
         if(dbg_eval_breakpoints(&cxt, cpu_get_reg(REG_PC)))
             cxt.broken = true;
     }
+
+    sigaction(SIGINT, &oldact, NULL);
+    printf("\n");
 }
