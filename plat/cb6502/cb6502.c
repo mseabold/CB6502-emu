@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "cpu.h"
 #include "acia.h"
@@ -89,13 +90,29 @@ int main(int argc, char *argv[])
     int read_result;
     unsigned int total_read;
 
-    if(argc < 2)
+    char *labels_file = NULL;
+    int c;
+    while((c = getopt(argc, argv, "l:")) != -1)
     {
-        fprintf(stderr, "Usage: %s rom_file\n", argv[0]);
+        switch(c)
+        {
+            case 'l':
+                labels_file = optarg;
+                break;
+            case '?':
+                return 1;
+            default:
+                return 1;
+        }
+    }
+
+    if(optind >= argc)
+    {
+        fprintf(stderr, "Usage: %s [-l LABEL_FILE] rom_file\n", argv[0]);
         return 1;
     }
 
-    rom_fd = open(argv[1], O_RDONLY);
+    rom_fd = open(argv[optind], O_RDONLY);
 
     if(rom_fd < 0)
     {
@@ -144,7 +161,7 @@ int main(int argc, char *argv[])
         fgets(buf, 16, stdin);
     }
 
-    debug_run();
+    debug_run(&mem_space, labels_file);
 
 #if 0
     while(1)

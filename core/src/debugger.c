@@ -13,14 +13,30 @@
 #define MAX_BREAKPOINTS 8
 #define BREAKPOINT_VALID_MASK 0x80000000
 #define BREAKPOINT_ADDR_MASK  0x0000ffff
+#define FNV1a_OFFSET_BASIS 2166136261
+#define FNV1a_PRIME        16777619
+#define LABEL_TABLE_SIZE 1024
+#define LABEL_ENTRIES_PER_BUCKET 4
+#define MAX_LABEL_SIZE 64
 
 #define CMD_DELIM " "
 #define MAX_PARAMS 16
 
+typedef struct dbg_label_s
+{
+    uint32_t key;
+    char label[MAX_LABEL_SIZE];
+    uint16_t address;
+    bool used;
+} dbg_label_t;
+
 typedef struct dbg_cxt_s
 {
     volatile bool broken;
+    bool exit;
     uint32_t breakpoints[MAX_BREAKPOINTS];
+    mem_space_t *mem_space;
+    dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
 } dbg_cxt_t;
 
 typedef struct cmd_param_s
@@ -40,6 +56,71 @@ typedef struct dbg_cmd_s
 } dbg_cmd_t;
 
 static dbg_cxt_t cxt;
+
+static uint32_t hash_str(char *str)
+{
+    uint32_t hash = FNV1a_OFFSET_BASIS;
+
+    while(*str != '\0')
+    {
+        hash ^= *str;
+        hash = hash * FNV1a_PRIME;
+        str++;
+    }
+
+    return hash;
+}
+
+static void add_label(char *name, uint16_t addr)
+{
+    dbg_label_t *label;
+    uint32_t hash = hash_str(name);
+    uint8_t i;
+    uint32_t bucket = hash % LABEL_TABLE_SIZE;
+
+    for(i=0;i<LABEL_ENTRIES_PER_BUCKET;++i)
+    {
+        if(!cxt.labels[bucket][i].used)
+        {
+            label = &cxt.labels[bucket][i];
+            label->address = addr;
+            strncpy(label->label, name, MAX_LABEL_SIZE);
+            label->key = hash;
+            label->used = true;
+            break;
+        }
+        else if(cxt.labels[bucket][i].key == hash)
+        {
+            //printf("duplicate label hash: %s, %s\n", name, cxt.labels[bucket][i].label);
+        }
+    }
+
+    if(i == LABEL_ENTRIES_PER_BUCKET)
+    {
+        fprintf(stderr, "Label bucket full: \n");
+    }
+
+    label->address = addr;
+    strncpy(label->label, name, MAX_LABEL_SIZE);
+    label->key = hash;
+}
+
+static dbg_label_t *find_label(char *name)
+{
+    uint32_t hash = hash_str(name);
+    uint8_t i;
+    uint32_t bucket = hash % LABEL_TABLE_SIZE;
+
+    for(i=0;i<LABEL_ENTRIES_PER_BUCKET;++i)
+    {
+        if(cxt.labels[bucket][i].used && cxt.labels[bucket][i].key == hash)
+        {
+            return &cxt.labels[bucket][i];
+        }
+    }
+
+    return NULL;
+}
 
 static void cmd_continue(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
 {
@@ -74,6 +155,9 @@ static void cmd_step(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
 static void cmd_set_breakpoint(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
 {
     uint8_t index;
+    uint16_t addr;
+    dbg_label_t *label;
+    bool valid = false;
 
     if(num_params == 0)
     {
@@ -85,13 +169,28 @@ static void cmd_set_breakpoint(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t 
             }
         }
     }
-    else if(num_params >= 1 && params[0].int_valid)
+    else if(num_params >= 1)
     {
-        for(index = 0; index < MAX_BREAKPOINTS; ++index)
+        if(params[0].int_valid)
+        {
+            addr = (uint16_t)params[0].ival;
+            valid = true;
+        }
+        else
+        {
+            label = find_label(params[0].sval);
+
+            if(label != NULL)
+            {
+                addr = label->address;
+                valid = true;
+            }
+        }
+        for(index = 0; index < MAX_BREAKPOINTS && valid; ++index)
         {
             if(!(cxt->breakpoints[index] & BREAKPOINT_VALID_MASK))
             {
-                cxt->breakpoints[index] = (uint16_t)params[0].ival | BREAKPOINT_VALID_MASK;
+                cxt->breakpoints[index] = (uint32_t)addr | BREAKPOINT_VALID_MASK;
                 break;
             }
         }
@@ -134,6 +233,48 @@ static void cmd_test(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
     }
 }
 
+static void cmd_quit(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
+{
+    cxt->exit = true;
+}
+
+static void cmd_examine(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
+{
+    uint16_t len;
+    uint16_t i;
+    uint16_t addr;
+    uint16_t col;
+
+    if(num_params == 0 || !params[0].int_valid || (num_params >= 2 && !params[1].int_valid))
+        return;
+
+    if(num_params > 1)
+        len = (uint16_t)params[1].ival;
+    else
+        len = 1;
+
+    addr = (uint16_t)params[0].ival;
+
+
+    for(i=0,col=0; i<len; ++i)
+    {
+        if(col == 0)
+            printf("%04x:", addr + 16*(i/16));
+
+        ++col;
+        printf(" %02x", cxt->mem_space->read(addr+i));
+
+        if(col == 16)
+        {
+            printf("\n");
+            col = 0;
+        }
+    }
+
+    if(col != 0)
+        printf("\n");
+}
+
 static dbg_cmd_t dbg_cmd_list[] = {
     { "continue", 'c', cmd_continue },
     { "next", 'n', cmd_next },
@@ -141,9 +282,34 @@ static dbg_cmd_t dbg_cmd_list[] = {
     { "registers", 'r', cmd_registers },
     { "breakpoint", 'b', cmd_set_breakpoint },
     { "test", 't', cmd_test },
+    { "quit", 'q', cmd_quit },
+    { "examine", 'x', cmd_examine },
 };
 
 #define NUM_CMDS (sizeof(dbg_cmd_list)/sizeof(dbg_cmd_t))
+
+static void read_labels(FILE *lfile)
+{
+    char line[256];
+    unsigned int addr;
+    char name[256];
+
+    while(fgets(line, sizeof(line), lfile) != NULL)
+    {
+        if(sscanf(line, "al %06X .%s", &addr, name) == 2)
+        {
+            if(strlen(name) > MAX_LABEL_SIZE || addr > 0xffff)
+            {
+                fprintf(stderr, "Invalid label line: %s", line);
+                continue;
+            }
+
+            /* Ignore empty and local scope (@) labels. */
+            if(name[0] != 0 && name[0] != '@')
+                add_label(name, addr);
+        }
+    }
+}
 
 static dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *params)
 {
@@ -162,8 +328,6 @@ static dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *para
     *num_params = 0;
 
     token = strtok_r(input, CMD_DELIM, &saveptr);
-
-    printf("[%s]\n", token);
 
     if(token == NULL)
         return NULL;
@@ -194,7 +358,6 @@ static dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *para
     {
         while(((token = strtok_r(NULL, CMD_DELIM, &saveptr)) != NULL) && (*num_params < MAX_PARAMS))
         {
-            printf("p %s\n", token);
             params[*num_params].sval = token;
 
             endptr = NULL;
@@ -232,7 +395,7 @@ void sighandle(int s)
     cxt.broken = true;
 }
 
-void debug_run(void)
+void debug_run(mem_space_t *mem_space, char *labels_file)
 {
     char disbuf[256];
     char inbuf[256];
@@ -241,11 +404,12 @@ void debug_run(void)
     cmd_param_t params[MAX_PARAMS];
     struct sigaction sigact;
     struct sigaction oldact;
+    FILE *labels;
 
-    bool exit = false;
     dbg_cmd_t *cmd = NULL;
 
     cxt.broken = true;
+    cxt.mem_space = mem_space;
 
     sigact.sa_flags = 0;
     sigemptyset(&sigact.sa_mask);
@@ -253,7 +417,19 @@ void debug_run(void)
 
     sigaction(SIGINT, &sigact, &oldact);
 
-    while(!exit)
+    if(labels_file != NULL)
+    {
+        printf("Reading labels from :%s\n", labels_file);
+
+        labels = fopen(labels_file, "r");
+
+        if(labels != NULL)
+            read_labels(labels);
+        else
+            fprintf(stderr, "Unable to open labels file\n");
+    }
+
+    while(!cxt.exit)
     {
         if(cxt.broken)
         {
@@ -265,7 +441,8 @@ void debug_run(void)
 
             if(input == NULL)
             {
-                break;
+                cxt.exit = true;
+                continue;
             }
 
             input[strcspn(input, "\n")] = 0;
