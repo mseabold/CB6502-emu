@@ -91,13 +91,17 @@ int main(int argc, char *argv[])
     unsigned int total_read;
 
     char *labels_file = NULL;
+    char *acia_socket = (char *)ACIA_DEFAULT_SOCKNAME;
     int c;
-    while((c = getopt(argc, argv, "l:")) != -1)
+    while((c = getopt(argc, argv, "l:s:")) != -1)
     {
         switch(c)
         {
             case 'l':
                 labels_file = optarg;
+                break;
+            case 's':
+                acia_socket = optarg;
                 break;
             case '?':
                 return 1;
@@ -108,7 +112,7 @@ int main(int argc, char *argv[])
 
     if(optind >= argc)
     {
-        fprintf(stderr, "Usage: %s [-l LABEL_FILE] rom_file\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-l LABEL_FILE] [-s ACIA_SOCKET_PATH ] rom_file\n", argv[0]);
         return 1;
     }
 
@@ -144,7 +148,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "WARNING: ROM file does not fill up ROM. Some of ROM may be unitialized/0.\n");
     }
 
-    if(!acia_init())
+    if(!acia_init(acia_socket))
     {
         fprintf(stderr, "Unable to initialize ACIA\n");
         return 1;
@@ -162,6 +166,8 @@ int main(int argc, char *argv[])
     }
 
     debug_run(&mem_space, labels_file);
+
+    acia_cleanup();
 
 #if 0
     while(1)
