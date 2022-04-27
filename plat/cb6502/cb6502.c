@@ -49,6 +49,10 @@ static uint8_t memory_read(uint16_t address)
     {
         value = via_read((uint8_t)(address - VIA_BASE));
     }
+    else if(ADDR_IN_REGION(address, ACIA_BASE, ACIA_SIZE))
+    {
+        value = acia_read((uint8_t)(address - ACIA_BASE));
+    }
 
 #ifdef STEP
     printf("0x%04x 0x%02x R\n", address, value);
