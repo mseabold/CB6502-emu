@@ -1,0 +1,79 @@
+#ifndef __SYS_H__
+#define __SYS_H__
+
+#include "mem.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct sys_cxt_s *sys_cxt_t;
+#define SYS_CXT_INVALID NULL
+
+/**
+ * Initialized the a global emulator sys context. This context holds common
+ * glue logic that connects all the emulators components such as bus read/read
+ * and interrupt control. The platform implementation must provided bus handler to
+ * perform address decoding and supply the read/writes to the proper components based on
+ * the address space for the particular system.
+ *
+ * @param[in] read_hlr  The memory bus read handler to be provided by the platform
+ * @param[in] write_hlr The memory bus write handler to be provided by the platform
+ *
+ * @return A sys context to be used for future calls, or NULL on failure to initialize.
+ */
+sys_cxt_t sys_init(mem_read_t read_hlr, mem_write_t write_hlr);
+
+/**
+ * Destroys a previously created global system context.
+ *
+ * @param[in] cxt The context to destroy
+ */
+void sys_destroy(sys_cxt_t cxt);
+
+/**
+ * Votes for a particular interrupt to be asserted or de-asserted. Any sys connected
+ * emulator module can use this to request an interrupt from the system.
+ *
+ * Note that for every call with vote set to true, a subsequent call set to false
+ * *must* occur. This includes if a module votes true multiple times. Multiple false
+ * calls are required to release all votes taken. Modules should take care to either
+ * only call once or keep track of how many outstanding votes it has taken.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] nmi Whether the vote is for an NMI or an IRQ interrupt
+ * @param[in] vote Whether the vote is to assert (true) or de-assert (false) the interrupt. I.e.
+ *                 A call to this function with vote set to true will cause the processor to
+ *                 interrupt on the next instruction.
+ */
+void sys_vote_interrupt(sys_cxt_t cxt, bool nmi, bool vote);
+
+/**
+ * Used by the processor core to check if an interrupt is pending. Note that for
+ * an NMI, this clears the pending interrupt, since it is edge triggered.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] nmi Whether to check for a pending NMI or IRQ interrupt
+ *
+ * @return true if the interrupt is pending.
+ */
+bool sys_check_interrupt(sys_cxt_t cxt, bool nmi);
+
+/**
+ * Perform a read on the system bus.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] addr The address to read
+ *
+ * @return The value associated with the address
+ */
+uint8_t sys_read_mem(sys_cxt_t cxt, uint16_t addr);
+
+/**
+ * Perform a write on the system bus.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] addr The address to write
+ * @param[in] val The value to write to the specified address
+ */
+void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val);
+
+#endif

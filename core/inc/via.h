@@ -37,16 +37,19 @@ typedef void (*prot_put_t)(via_port_data_t data_type, uint8_t data, void *userda
  */
 typedef void (*prot_get_t)(via_port_data_t data_type, uint8_t *data, void *userdata);
 
+typedef struct via_s *via_t;
+
 typedef struct via_protocol_s
 {
     prot_put_t put;
     prot_get_t get;
 } via_protocol_t;
 
-bool via_init(void);
-void via_write(uint8_t reg, uint8_t val);
-uint8_t via_read(uint8_t reg);
-bool via_register_protocol(const via_protocol_t *protocol, void *userdata);
-void via_unregister_protocol(const via_protocol_t *protocol);
+via_t via_init(void);
+void via_cleanup(via_t handle);
+void via_write(via_t handle, uint8_t reg, uint8_t val);
+uint8_t via_read(via_t handle, uint8_t reg);
+bool via_register_protocol(via_t handle, const via_protocol_t *protocol, void *userdata);
+void via_unregister_protocol(via_t handle, const via_protocol_t *protocol);
 
 #endif /* __VIA_H__ */

@@ -6,9 +6,11 @@
 
 #define ACIA_DEFAULT_SOCKNAME "acia.sock"
 
-bool acia_init(char *socketpath);
-void acia_write(uint8_t reg, uint8_t val);
-uint8_t acia_read(uint8_t reg);
-void acia_cleanup(void);
+typedef struct acia_s *acia_t;
 
-#endif /* end of include guard: __ACIA_H__ */
+acia_t acia_init(char *socketpath);
+void acia_write(acia_t handle, uint8_t reg, uint8_t val);
+uint8_t acia_read(acia_t handle, uint8_t reg);
+void acia_cleanup(acia_t handle);
+
+#endif

@@ -1,6 +1,7 @@
 option(SUPPORT_65C02 "Support 65C02 opcodes" ON)
 
 add_library(cbemu STATIC
+    src/sys.c
     src/cpu.c
     src/acia.c
     src/via.c

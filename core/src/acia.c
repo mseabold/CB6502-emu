@@ -68,7 +68,6 @@
 
 typedef struct ACIA_Cxt_s
 {
-    bool init;
     int server_fd;
     int term_fd;
     int shutdown_fd;
@@ -87,27 +86,25 @@ typedef struct ACIA_Cxt_s
     bool irq_pend;
 } ACIA_Cxt_t;
 
-static ACIA_Cxt_t ACIA_Cxt;
-
-static void check_rx_rdy(void)
+static void check_rx_rdy(ACIA_Cxt_t *cxt)
 {
-    if(ACIA_Cxt.rx_avail < ACIA_RX_BUF_SIZE)
+    if(cxt->rx_avail < ACIA_RX_BUF_SIZE)
     {
-        ACIA_Cxt.stat_reg |= ACIA_STATUS_RDRF;
+        cxt->stat_reg |= ACIA_STATUS_RDRF;
     }
 }
 
-static void eval_irq(void)
+static void eval_irq(ACIA_Cxt_t *cxt)
 {
     bool irq = false;
 
-    if((ACIA_Cxt.stat_reg & ACIA_STATUS_RDRF) && ((ACIA_Cxt.cmd_reg & ACIA_CMD_IRD_MASK) == ACIA_CMD_IRD_ENABLED))
+    if((cxt->stat_reg & ACIA_STATUS_RDRF) && ((cxt->cmd_reg & ACIA_CMD_IRD_MASK) == ACIA_CMD_IRD_ENABLED))
         irq = true;
 
     if(irq)
-        ACIA_Cxt.stat_reg |= ACIA_STATUS_IRQ;
+        cxt->stat_reg |= ACIA_STATUS_IRQ;
     else
-        ACIA_Cxt.stat_reg &= ~ACIA_STATUS_IRQ;
+        cxt->stat_reg &= ~ACIA_STATUS_IRQ;
 }
 
 void *terminal_thread(void *p)
@@ -116,15 +113,16 @@ void *terminal_thread(void *p)
     bool shutdown = false;
     uint8_t buf[256];
     int newsock;
+    ACIA_Cxt_t *cxt = (ACIA_Cxt_t *)p;
 
     while(!shutdown)
     {
         int r;
 
         fds[0].events = POLLIN;
-        fds[0].fd = ACIA_Cxt.server_fd;
+        fds[0].fd = cxt->server_fd;
         fds[1].events = POLLIN;
-        fds[1].fd = ACIA_Cxt.shutdown_fd;
+        fds[1].fd = cxt->shutdown_fd;
 
         r = poll(fds, 2, -1);
 
@@ -138,23 +136,23 @@ void *terminal_thread(void *p)
             }
             else if(fds[0].revents == POLLIN)
             {
-                newsock = accept4(ACIA_Cxt.server_fd, NULL, NULL, SOCK_NONBLOCK);
+                newsock = accept4(cxt->server_fd, NULL, NULL, SOCK_NONBLOCK);
 
                 if(newsock < 0)
                 {
                     continue;
                 }
 
-                ACIA_Cxt.term_fd = newsock;
+                cxt->term_fd = newsock;
             }
         }
 
-        if(ACIA_Cxt.term_fd >= 0)
+        if(cxt->term_fd >= 0)
         {
-            fds[0].fd = ACIA_Cxt.term_fd;
+            fds[0].fd = cxt->term_fd;
             fds[0].events = POLLIN | POLLHUP | POLLERR;
 
-            while(ACIA_Cxt.term_fd >= 0)
+            while(cxt->term_fd >= 0)
             {
                 r = poll(fds, 2, -1);
 
@@ -168,7 +166,7 @@ void *terminal_thread(void *p)
                     if(fds[0].revents == POLLIN)
                     {
                         /* Input data available is the only event, so process it. */
-                        r = read(ACIA_Cxt.term_fd, buf, 256);
+                        r = read(cxt->term_fd, buf, 256);
                     }
                     else
                     {
@@ -182,46 +180,46 @@ void *terminal_thread(void *p)
                         int copylen;
                         bool irq_pend;
 
-                        pthread_mutex_lock(&ACIA_Cxt.mutex);
+                        pthread_mutex_lock(&cxt->mutex);
 
-                        if(r >= ACIA_Cxt.rx_avail)
+                        if(r >= cxt->rx_avail)
                         {
-                            fprintf(stderr, "Warning: Dropping %d bytes in ACIA\n", r - (int)ACIA_Cxt.rx_avail);
-                            r = (int)ACIA_Cxt.rx_avail;
+                            fprintf(stderr, "Warning: Dropping %d bytes in ACIA\n", r - (int)cxt->rx_avail);
+                            r = (int)cxt->rx_avail;
                         }
 
-                        if(ACIA_Cxt.rx_buf_in + r >= ACIA_RX_BUF_SIZE)
+                        if(cxt->rx_buf_in + r >= ACIA_RX_BUF_SIZE)
                         {
                             copylen = ACIA_RX_BUF_SIZE - ACIA_RX_BUF_SIZE;
-                            memcpy(&ACIA_Cxt.rx_buffer[ACIA_Cxt.rx_buf_in], buf, copylen);
-                            ACIA_Cxt.rx_buf_in = 0;
+                            memcpy(&cxt->rx_buffer[cxt->rx_buf_in], buf, copylen);
+                            cxt->rx_buf_in = 0;
                             r -= copylen;
-                            ACIA_Cxt.rx_avail -= copylen;
+                            cxt->rx_avail -= copylen;
                         }
 
                         if(r > 0)
                         {
-                            memcpy(&ACIA_Cxt.rx_buffer[ACIA_Cxt.rx_buf_in], buf, r);
-                            ACIA_Cxt.rx_avail -= r;
-                            ACIA_Cxt.rx_buf_in += r;
+                            memcpy(&cxt->rx_buffer[cxt->rx_buf_in], buf, r);
+                            cxt->rx_avail -= r;
+                            cxt->rx_buf_in += r;
                         }
 
-                        check_rx_rdy();
+                        check_rx_rdy(cxt);
 
-                        pthread_mutex_unlock(&ACIA_Cxt.mutex);
+                        pthread_mutex_unlock(&cxt->mutex);
 
-                        eval_irq();
+                        eval_irq(cxt);
                     }
                     else
                     {
-                        pthread_mutex_lock(&ACIA_Cxt.mutex);
+                        pthread_mutex_lock(&cxt->mutex);
 
                         /* Close and invalidate the socket handle atomically, so a potential
                          * write call does not attempt to write to the socket after we close it. */
-                        close(ACIA_Cxt.term_fd);
-                        ACIA_Cxt.term_fd = -1;
+                        close(cxt->term_fd);
+                        cxt->term_fd = -1;
 
-                        pthread_mutex_unlock(&ACIA_Cxt.mutex);
+                        pthread_mutex_unlock(&cxt->mutex);
                     }
                 }
             }
@@ -232,14 +230,18 @@ void *terminal_thread(void *p)
     return NULL;
 }
 
-bool acia_init(char *socketpath)
+acia_t acia_init(char *socketpath)
 {
     int fd;
     struct sockaddr_un sockname;
+    ACIA_Cxt_t *cxt = malloc(sizeof(ACIA_Cxt_t));
 
-    memset(&ACIA_Cxt, 0, sizeof(ACIA_Cxt));
+    if(cxt == NULL)
+        return NULL;
 
-    if(pthread_mutex_init(&ACIA_Cxt.mutex, NULL) < 0)
+    memset(cxt, 0, sizeof(ACIA_Cxt_t));
+
+    if(pthread_mutex_init(&cxt->mutex, NULL) < 0)
     {
         fprintf(stderr, "UNable to init mutex\n");
         return false;
@@ -271,117 +273,129 @@ bool acia_init(char *socketpath)
         return false;
     }
 
-    ACIA_Cxt.server_fd = fd;
-    ACIA_Cxt.shutdown_fd = eventfd(0, 0);
-    ACIA_Cxt.term_fd = -1;
+    cxt->server_fd = fd;
+    cxt->shutdown_fd = eventfd(0, 0);
+    cxt->term_fd = -1;
 
-    if(ACIA_Cxt.shutdown_fd < 0)
+    if(cxt->shutdown_fd < 0)
     {
         fprintf(stderr, "eventfd failure %s\n", strerror(errno));
         close(fd);
         return false;
     }
 
-    if(pthread_create(&ACIA_Cxt.thread, NULL, terminal_thread, NULL) < 0)
+    if(pthread_create(&cxt->thread, NULL, terminal_thread, cxt) < 0)
     {
         fprintf(stderr, "Unable to start ACIA thread: %s\n", strerror(errno));
-        close(ACIA_Cxt.term_fd);
-        close(ACIA_Cxt.shutdown_fd);
+        close(cxt->term_fd);
+        close(cxt->shutdown_fd);
         return false;
     }
 
     printf("ACIA listening on: %s\n", socketpath);
 
-    ACIA_Cxt.init = true;
-    ACIA_Cxt.rx_avail = ACIA_RX_BUF_SIZE;
-    return true;
+    cxt->rx_avail = ACIA_RX_BUF_SIZE;
+
+    return (acia_t)cxt;
 }
 
-void acia_write(uint8_t reg, uint8_t val)
+void acia_write(acia_t handle, uint8_t reg, uint8_t val)
 {
+    ACIA_Cxt_t *cxt = (ACIA_Cxt_t *)handle;
+
+    if(cxt == NULL)
+        return;
+
     switch(reg)
     {
         case ACIA_RS_TX_DATA:
-            pthread_mutex_lock(&ACIA_Cxt.mutex);
+            pthread_mutex_lock(&cxt->mutex);
 
             /* Under lock, so FD cannot be closed by read thread. FD should also be non-blocking. */
-            if(ACIA_Cxt.term_fd >= 0)
-                write(ACIA_Cxt.term_fd, &val, 1);
+            if(cxt->term_fd >= 0)
+                write(cxt->term_fd, &val, 1);
 
-            pthread_mutex_unlock(&ACIA_Cxt.mutex);
+            pthread_mutex_unlock(&cxt->mutex);
             break;
         case ACIA_RS_SW_RESET:
             /* TODO */
             break;
         case ACIA_RS_CTRL:
-            ACIA_Cxt.ctl_reg = val;
+            cxt->ctl_reg = val;
             break;
         case ACIA_RS_CMD:
-            ACIA_Cxt.cmd_reg = val;
+            cxt->cmd_reg = val;
             break;
     }
 }
 
-uint8_t acia_read(uint8_t reg)
+uint8_t acia_read(acia_t handle, uint8_t reg)
 {
     uint8_t ret = 0xff;
+    ACIA_Cxt_t *cxt = (ACIA_Cxt_t *)handle;
+
+    if(cxt == NULL)
+        return 0xff;
 
     switch(reg)
     {
         case ACIA_RS_RX_DATA:
-            pthread_mutex_lock(&ACIA_Cxt.mutex);
+            pthread_mutex_lock(&cxt->mutex);
 
-            if(ACIA_Cxt.stat_reg & ACIA_STATUS_RDRF)
+            if(cxt->stat_reg & ACIA_STATUS_RDRF)
             {
                 /* TODO: what does the actual ACIA do if there is no data available? For now,
                  *       just return whatever was last received. */
-                ret = ACIA_Cxt.rx_buffer[ACIA_Cxt.rx_buf_out];
-                ACIA_Cxt.rx_buf_out = (ACIA_Cxt.rx_buf_out + 1) % ACIA_RX_BUF_SIZE;
-                ++ACIA_Cxt.rx_avail;
-                ACIA_Cxt.stat_reg &= ~ACIA_RX_READ_CLEAR_BITS;
+                ret = cxt->rx_buffer[cxt->rx_buf_out];
+                cxt->rx_buf_out = (cxt->rx_buf_out + 1) % ACIA_RX_BUF_SIZE;
+                ++cxt->rx_avail;
+                cxt->stat_reg &= ~ACIA_RX_READ_CLEAR_BITS;
 
-                (void)check_rx_rdy();
+                (void)check_rx_rdy(cxt);
             }
 
-            pthread_mutex_unlock(&ACIA_Cxt.mutex);
+            pthread_mutex_unlock(&cxt->mutex);
 
-            eval_irq();
+            eval_irq(cxt);
             break;
         case ACIA_RS_STATUS:
-            pthread_mutex_lock(&ACIA_Cxt.mutex);
-            ret = ACIA_Cxt.stat_reg;
-            ACIA_Cxt.stat_reg &= ~ACIA_STATUS_IRQ;
-            pthread_mutex_unlock(&ACIA_Cxt.mutex);
+            pthread_mutex_lock(&cxt->mutex);
+            ret = cxt->stat_reg;
+            cxt->stat_reg &= ~ACIA_STATUS_IRQ;
+            pthread_mutex_unlock(&cxt->mutex);
             break;
         case ACIA_RS_CTRL:
-            ret = ACIA_Cxt.ctl_reg;
+            ret = cxt->ctl_reg;
             break;
         case ACIA_RS_CMD:
-            ret = ACIA_Cxt.cmd_reg;
+            ret = cxt->cmd_reg;
             break;
     }
 
     return ret;
 }
 
-void acia_cleanup(void)
+void acia_cleanup(acia_t handle)
 {
+    ACIA_Cxt_t *cxt = (ACIA_Cxt_t *)handle;
     uint64_t eventval;
 
-    if(ACIA_Cxt.init)
-    {
-        eventval = 1;
+    if(cxt == NULL)
+        return;
 
-        write(ACIA_Cxt.shutdown_fd, &eventval, 8);
+    eventval = 1;
 
-        pthread_join(ACIA_Cxt.thread, NULL);
+    write(cxt->shutdown_fd, &eventval, 8);
 
-        close(ACIA_Cxt.server_fd);
-        close(ACIA_Cxt.shutdown_fd);
+    pthread_join(cxt->thread, NULL);
 
-        if(ACIA_Cxt.term_fd > 0)
-            close(ACIA_Cxt.term_fd);
+    close(cxt->server_fd);
+    close(cxt->shutdown_fd);
 
-        pthread_mutex_destroy(&ACIA_Cxt.mutex);
-    }
+    if(cxt->term_fd > 0)
+        close(cxt->term_fd);
+
+    pthread_mutex_destroy(&cxt->mutex);
+
+    free(cxt);
 }

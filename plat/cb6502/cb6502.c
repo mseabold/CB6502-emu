@@ -7,6 +7,7 @@
 #include <string.h>
 #include <getopt.h>
 
+#include "sys.h"
 #include "cpu.h"
 #include "acia.h"
 #include "via.h"
@@ -30,6 +31,9 @@
 
 static uint8_t RAM[RAM_SIZE];
 static uint8_t ROM[ROM_SIZE];
+static sys_cxt_t sys;
+static acia_t acia;
+static via_t via;
 
 #define ADDR_IN_REGION(_addr, _base, _size) ((_addr) >= (_base) && (uint32_t)(_addr) < (uint32_t)(_base) + (_size))
 
@@ -47,11 +51,11 @@ static uint8_t memory_read(uint16_t address)
     }
     else if(ADDR_IN_REGION(address, VIA_BASE, VIA_SIZE))
     {
-        value = via_read((uint8_t)(address - VIA_BASE));
+        value = via_read(via, (uint8_t)(address - VIA_BASE));
     }
     else if(ADDR_IN_REGION(address, ACIA_BASE, ACIA_SIZE))
     {
-        value = acia_read((uint8_t)(address - ACIA_BASE));
+        value = acia_read(acia, (uint8_t)(address - ACIA_BASE));
     }
 
 #ifdef STEP
@@ -70,11 +74,11 @@ static void memory_write(uint16_t address, uint8_t value)
     }
     else if(address >= ACIA_BASE && (uint32_t)address < (uint32_t)ACIA_BASE+ACIA_SIZE)
     {
-        acia_write((uint8_t)(address - ACIA_BASE), value);
+        acia_write(acia, (uint8_t)(address - ACIA_BASE), value);
     }
     else if(ADDR_IN_REGION(address, VIA_BASE, VIA_SIZE))
     {
-        via_write((uint8_t)(address - VIA_BASE), value);
+        via_write(via, (uint8_t)(address - VIA_BASE), value);
     }
 
 #ifdef STEP
@@ -152,14 +156,26 @@ int main(int argc, char *argv[])
         fprintf(stderr, "WARNING: ROM file does not fill up ROM. Some of ROM may be unitialized/0.\n");
     }
 
-    if(!acia_init(acia_socket))
+    acia = acia_init(acia_socket);
+    if(acia == NULL)
     {
         fprintf(stderr, "Unable to initialize ACIA\n");
         return 1;
     }
 
-    via_init();
-    via_register_protocol(bitbang_spi_get_prot(), NULL);
+    sys = sys_init(memory_read, memory_write);
+    if(sys == NULL)
+    {
+        fprintf(stderr, "feck\n");
+        return 1;
+    }
+    via = via_init();
+    if(via == NULL)
+    {
+        fprintf(stderr, "Unable to unitialize VIA\n");
+        return 1;
+    }
+    via_register_protocol(via, bitbang_spi_get_prot(), NULL);
     printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
     init6502(&mem_space, true);
 
@@ -171,7 +187,7 @@ int main(int argc, char *argv[])
 
     debug_run(&mem_space, labels_file);
 
-    acia_cleanup();
+    acia_cleanup(acia);
 
 #if 0
     while(1)
