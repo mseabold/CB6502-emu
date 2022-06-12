@@ -177,7 +177,8 @@ int main(int argc, char *argv[])
     }
     via_register_protocol(via, bitbang_spi_get_prot(), NULL);
     printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
-    init6502(&mem_space, true);
+    //printf("sdcard init %s\n", sdcard_init("/home/matt/git/CB6502/sddump.bin") ? "success" : "failure");
+    cpu_init(sys, true);
 
     if(0)
     {
@@ -185,7 +186,7 @@ int main(int argc, char *argv[])
         fgets(buf, 16, stdin);
     }
 
-    debug_run(&mem_space, labels_file);
+    debug_run(sys, labels_file);
 
     acia_cleanup(acia);
 

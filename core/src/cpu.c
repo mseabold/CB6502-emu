@@ -96,21 +96,6 @@ typedef enum {
     NUM_ADDR_MODES
 } addr_mode_t;
 
-static uint8_t dummy_read(uint16_t address)
-{
-    return 0xff;
-}
-
-static void dummy_write(uint16_t address, uint8_t value)
-{
-}
-
-static const mem_space_t dummy_space =
-{
-    dummy_write,
-    dummy_read
-};
-
 //6502 CPU registers
 uint16_t pc;
 uint8_t sp, a, x, y, status;
@@ -122,40 +107,37 @@ uint32_t clockticks6502 = 0, clockgoal6502 = 0;
 uint16_t oldpc, ea, reladdr, value, result;
 uint8_t opcode, oldstatus;
 
-// Callback functions registers via init
-// Initially set them to empty implementations (as opposed to adding a NULL check
-// to every single call)
-static mem_space_t *mem_space = (mem_space_t *)&dummy_space;
+sys_cxt_t syscxt;
 
 //a few general functions used by various other functions
 void push16(uint16_t pushval)
 {
-    mem_space->write(BASE_STACK + sp, (pushval >> 8) & 0xFF);
-    mem_space->write(BASE_STACK + ((sp - 1) & 0xFF), pushval & 0xFF);
+    sys_write_mem(syscxt, BASE_STACK + sp, (pushval >> 8) & 0xFF);
+    sys_write_mem(syscxt, BASE_STACK + ((sp - 1) & 0xFF), pushval & 0xFF);
     sp -= 2;
 }
 
 void push8(uint8_t pushval)
 {
-    mem_space->write(BASE_STACK + sp--, pushval);
+    sys_write_mem(syscxt, BASE_STACK + sp--, pushval);
 }
 
 uint16_t pull16()
 {
     uint16_t temp16;
-    temp16 = mem_space->read(BASE_STACK + ((sp + 1) & 0xFF)) | ((uint16_t)mem_space->read(BASE_STACK + ((sp + 2) & 0xFF)) << 8);
+    temp16 = sys_read_mem(syscxt, BASE_STACK + ((sp + 1) & 0xFF)) | ((uint16_t)sys_read_mem(syscxt, BASE_STACK + ((sp + 2) & 0xFF)) << 8);
     sp += 2;
     return(temp16);
 }
 
 uint8_t pull8()
 {
-    return (mem_space->read(BASE_STACK + ++sp));
+    return (sys_read_mem(syscxt, BASE_STACK + ++sp));
 }
 
-void reset6502()
+void cpu_reset()
 {
-    pc = (uint16_t)mem_space->read(0xFFFC) | ((uint16_t)mem_space->read(0xFFFD) << 8);
+    pc = (uint16_t)sys_read_mem(syscxt, 0xFFFC) | ((uint16_t)sys_read_mem(syscxt, 0xFFFD) << 8);
     a = 0;
     x = 0;
     y = 0;
@@ -189,32 +171,32 @@ static void imm()
 //zero-page
 static void zp()
 {
-    ea = (uint16_t)mem_space->read((uint16_t)pc++);
+    ea = (uint16_t)sys_read_mem(syscxt, (uint16_t)pc++);
 }
 
 //zero-page,X
 static void zpx()
 {
-    ea = ((uint16_t)mem_space->read((uint16_t)pc++) + (uint16_t)x) & 0xFF; //zero-page wraparound
+    ea = ((uint16_t)sys_read_mem(syscxt, (uint16_t)pc++) + (uint16_t)x) & 0xFF; //zero-page wraparound
 }
 
 //zero-page,Y
 static void zpy()
 {
-    ea = ((uint16_t)mem_space->read((uint16_t)pc++) + (uint16_t)y) & 0xFF; //zero-page wraparound
+    ea = ((uint16_t)sys_read_mem(syscxt, (uint16_t)pc++) + (uint16_t)y) & 0xFF; //zero-page wraparound
 }
 
 //relative for branch ops (8-bit immediate value, sign-extended)
 static void rel()
 {
-    reladdr = (uint16_t)mem_space->read(pc++);
+    reladdr = (uint16_t)sys_read_mem(syscxt, pc++);
     if(reladdr & 0x80) reladdr |= 0xFF00;
 }
 
 //absolute
 static void abso()
 {
-    ea = (uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8);
+    ea = (uint16_t)sys_read_mem(syscxt, pc) | ((uint16_t)sys_read_mem(syscxt, pc+1) << 8);
     pc += 2;
 }
 
@@ -222,7 +204,7 @@ static void abso()
 static void absx()
 {
     uint16_t startpage;
-    ea = ((uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8));
+    ea = ((uint16_t)sys_read_mem(syscxt, pc) | ((uint16_t)sys_read_mem(syscxt, pc+1) << 8));
     startpage = ea & 0xFF00;
     ea += (uint16_t)x;
 
@@ -237,7 +219,7 @@ static void absx()
 static void absy()
 {
     uint16_t startpage;
-    ea = ((uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8));
+    ea = ((uint16_t)sys_read_mem(syscxt, pc) | ((uint16_t)sys_read_mem(syscxt, pc+1) << 8));
     startpage = ea & 0xFF00;
     ea += (uint16_t)y;
 
@@ -252,9 +234,9 @@ static void absy()
 static void ind()
 {
     uint16_t eahelp, eahelp2;
-    eahelp = (uint16_t)mem_space->read(pc) | (uint16_t)((uint16_t)mem_space->read(pc+1) << 8);
+    eahelp = (uint16_t)sys_read_mem(syscxt, pc) | (uint16_t)((uint16_t)sys_read_mem(syscxt, pc+1) << 8);
     eahelp2 = (eahelp & 0xFF00) | ((eahelp + 1) & 0x00FF); //replicate 6502 page-boundary wraparound bug
-    ea = (uint16_t)mem_space->read(eahelp) | ((uint16_t)mem_space->read(eahelp2) << 8);
+    ea = (uint16_t)sys_read_mem(syscxt, eahelp) | ((uint16_t)sys_read_mem(syscxt, eahelp2) << 8);
     pc += 2;
 }
 
@@ -262,17 +244,17 @@ static void ind()
 static void indx()
 {
     uint16_t eahelp;
-    eahelp = (uint16_t)(((uint16_t)mem_space->read(pc++) + (uint16_t)x) & 0xFF); //zero-page wraparound for table pointer
-    ea = (uint16_t)mem_space->read(eahelp & 0x00FF) | ((uint16_t)mem_space->read((eahelp+1) & 0x00FF) << 8);
+    eahelp = (uint16_t)(((uint16_t)sys_read_mem(syscxt, pc++) + (uint16_t)x) & 0xFF); //zero-page wraparound for table pointer
+    ea = (uint16_t)sys_read_mem(syscxt, eahelp & 0x00FF) | ((uint16_t)sys_read_mem(syscxt, (eahelp+1) & 0x00FF) << 8);
 }
 
 // (indirect),Y
 static void indy()
 {
     uint16_t eahelp, eahelp2, startpage;
-    eahelp = (uint16_t)mem_space->read(pc++);
+    eahelp = (uint16_t)sys_read_mem(syscxt, pc++);
     eahelp2 = (eahelp & 0xFF00) | ((eahelp + 1) & 0x00FF); //zero-page wraparound
-    ea = (uint16_t)mem_space->read(eahelp) | ((uint16_t)mem_space->read(eahelp2) << 8);
+    ea = (uint16_t)sys_read_mem(syscxt, eahelp) | ((uint16_t)sys_read_mem(syscxt, eahelp2) << 8);
     startpage = ea & 0xFF00;
     ea += (uint16_t)y;
 
@@ -284,23 +266,23 @@ static void indy()
 // (zp)
 static void indz()
 {
-    ea = (uint16_t)mem_space->read(pc++);
+    ea = (uint16_t)sys_read_mem(syscxt, pc++);
 }
 
 // (a,x)
 static void abin()
 {
     uint16_t eahelp;
-    eahelp = (uint16_t) mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8);
+    eahelp = (uint16_t) sys_read_mem(syscxt, pc) | ((uint16_t)sys_read_mem(syscxt, pc+1) << 8);
     eahelp += x;
-    ea = mem_space->read(eahelp);
+    ea = sys_read_mem(syscxt, eahelp);
     pc += 2;
 }
 
 static void zprel()
 {
-    ea = mem_space->read(pc++);
-    reladdr = (uint16_t)mem_space->read(pc++);
+    ea = sys_read_mem(syscxt, pc++);
+    reladdr = (uint16_t)sys_read_mem(syscxt, pc++);
 
     if(reladdr & 0x80)
         reladdr |= 0xff00;
@@ -311,12 +293,12 @@ static uint16_t getvalue()
     if(addrtable[opcode] == ACC)
         return((uint16_t)a);
     else
-        return((uint16_t)mem_space->read(ea));
+        return((uint16_t)sys_read_mem(syscxt, ea));
 }
 
 static uint16_t getvalue16()
 {
-    return((uint16_t)mem_space->read(ea) | ((uint16_t)mem_space->read(ea+1) << 8));
+    return((uint16_t)sys_read_mem(syscxt, ea) | ((uint16_t)sys_read_mem(syscxt, ea+1) << 8));
 }
 
 static void putvalue(uint16_t saveval)
@@ -324,7 +306,7 @@ static void putvalue(uint16_t saveval)
     if(addrtable[opcode] == ACC)
         a = (uint8_t)(saveval & 0x00FF);
     else
-        mem_space->write(ea, (saveval & 0x00FF));
+        sys_write_mem(syscxt, ea, (saveval & 0x00FF));
 }
 
 
@@ -489,7 +471,7 @@ static void brk()
     push16(pc); //push next instruction address onto stack
     push8(status | FLAG_BREAK); //push CPU status to stack
     setinterrupt(); //set interrupt flag
-    pc = (uint16_t)mem_space->read(0xFFFE) | ((uint16_t)mem_space->read(0xFFFF) << 8);
+    pc = (uint16_t)sys_read_mem(syscxt, 0xFFFE) | ((uint16_t)sys_read_mem(syscxt, 0xFFFF) << 8);
 }
 
 static void bvc()
@@ -1170,12 +1152,23 @@ static const char *mnemonics[256] =
 /* F */      "BEQ",  "SBC",  "SBC",  "NOP",  "NOP",  "SBC",  "INC", "SMB7",  "SED",  "SBC",  "PLX",  "NOP",  "NOP",  "SBC",  "INC",  "ISB"  /* F */
 };
 
-void init6502(mem_space_t *_mem_space, bool reset)
+/**
+ * Initialize the 6502 emulator. This sets the memory access functions as well as performs
+ * an optional initial reset6502().
+ *
+ * @param system_cxt    Handle of the global system context. The CPU uses this to access the
+ *                      memory space as well as check the status of the interrupt vectors.
+ * @param reset         Perform a reset6502 as well as initialization.
+ */
+void cpu_init(sys_cxt_t system_cxt, bool reset)
 {
-    mem_space = _mem_space;
+    if(system_cxt == NULL)
+        return;
+
+    syscxt = system_cxt;
 
     if(reset)
-        reset6502();
+        cpu_reset();
 }
 
 void nmi6502()
@@ -1183,7 +1176,7 @@ void nmi6502()
     push16(pc);
     push8(status);
     status |= FLAG_INTERRUPT;
-    pc = (uint16_t)mem_space->read(0xFFFA) | ((uint16_t)mem_space->read(0xFFFB) << 8);
+    pc = (uint16_t)sys_read_mem(syscxt, 0xFFFA) | ((uint16_t)sys_read_mem(syscxt, 0xFFFB) << 8);
 }
 
 void irq6502()
@@ -1191,40 +1184,14 @@ void irq6502()
     push16(pc);
     push8(status);
     status |= FLAG_INTERRUPT;
-    pc = (uint16_t)mem_space->read(0xFFFE) | ((uint16_t)mem_space->read(0xFFFF) << 8);
+    pc = (uint16_t)sys_read_mem(syscxt, 0xFFFE) | ((uint16_t)sys_read_mem(syscxt, 0xFFFF) << 8);
 }
 
-uint8_t callexternal = 0;
-void (*loopexternal)();
-
-void exec6502(uint32_t tickcount)
+uint8_t cpu_step()
 {
-    clockgoal6502 += tickcount;
-
-    while (clockticks6502 < clockgoal6502)
-    {
-        opcode = mem_space->read(pc++);
-        status |= FLAG_CONSTANT;
-
-        penaltyop = 0;
-        penaltyaddr = 0;
-
-        (*addr_handlers[addrtable[opcode]])();
-        (*optable[opcode])();
-        clockticks6502 += ticktable[opcode];
-        if(penaltyop && penaltyaddr) clockticks6502++;
-
-        instructions++;
-
-        if(callexternal) (*loopexternal)();
-    }
-
-}
-
-void step6502()
-{
-    opcode = mem_space->read(pc++);
+    opcode = sys_read_mem(syscxt, pc++);
     status |= FLAG_CONSTANT;
+    uint32_t startticks = clockticks6502;
 
     penaltyop = 0;
     penaltyaddr = 0;
@@ -1237,23 +1204,14 @@ void step6502()
 
     instructions++;
 
-    if(callexternal) (*loopexternal)();
+    return (uint8_t)(clockticks6502 - startticks);
 }
 
-void hookexternal(void *funcptr)
-{
-    if(funcptr != (void *)NULL)
-    {
-        loopexternal = funcptr;
-        callexternal = 1;
-    } else callexternal = 0;
-}
-
-void disassemble(size_t bufLen, char *buffer)
+void cpu_disassemble(size_t bufLen, char *buffer)
 {
     const char *mn;
     addr_mode_t addr_mode;
-    uint8_t opcode = mem_space->read(pc);
+    uint8_t opcode = sys_read_mem(syscxt, pc);
     size_t len;
     mn = mnemonics[opcode];
     addr_mode = addrtable[opcode];
@@ -1270,40 +1228,40 @@ void disassemble(size_t bufLen, char *buffer)
     switch(addr_mode)
     {
         case IMM:
-            snprintf(buffer, bufLen, " #$%02x", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " #$%02x", sys_read_mem(syscxt, pc+1));
             break;
         case ZP:
-            snprintf(buffer, bufLen, " $00%02x", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $00%02x", sys_read_mem(syscxt, pc+1));
             break;
         case ZPX:
-            snprintf(buffer, bufLen, " $00%02x,X", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $00%02x,X", sys_read_mem(syscxt, pc+1));
             break;
         case ZPY:
-            snprintf(buffer, bufLen, " $00%02x,Y", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $00%02x,Y", sys_read_mem(syscxt, pc+1));
             break;
         case REL:
-            snprintf(buffer, bufLen, " $%02x", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $%02x", sys_read_mem(syscxt, pc+1));
             break;
         case ABSO:
-            snprintf(buffer, bufLen, " $%02x%02x", mem_space->read(pc+2), mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $%02x%02x", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
             break;
         case ABSX:
-            snprintf(buffer, bufLen, " $%02x%02x,X", mem_space->read(pc+2), mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $%02x%02x,X", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
             break;
         case ABSY:
-            snprintf(buffer, bufLen, " $%02x%02x,Y", mem_space->read(pc+2), mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " $%02x%02x,Y", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
             break;
         case IND:
-            snprintf(buffer, bufLen, " ($%02x%02x)", mem_space->read(pc+2), mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " ($%02x%02x)", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
             break;
         case INDX:
-            snprintf(buffer, bufLen, " ($00%02x,X)", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " ($00%02x,X)", sys_read_mem(syscxt, pc+1));
             break;
         case INDY:
-            snprintf(buffer, bufLen, " ($00%02x,Y)", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " ($00%02x,Y)", sys_read_mem(syscxt, pc+1));
             break;
         case INDZ:
-            snprintf(buffer, bufLen, " ($00%02x)", mem_space->read(pc+1));
+            snprintf(buffer, bufLen, " ($00%02x)", sys_read_mem(syscxt, pc+1));
             break;
         default:
             break;
@@ -1357,13 +1315,13 @@ void cpu_get_regs(cpu_regs_t *regs)
 
 uint8_t cpu_get_op_len(void)
 {
-    uint8_t opcode = mem_space->read(pc);
+    uint8_t opcode = sys_read_mem(syscxt, pc);
     return addr_lengths[addrtable[opcode]];
 }
 
 bool cpu_is_subroutine(void)
 {
-    uint8_t opcode = mem_space->read(pc);
+    uint8_t opcode = sys_read_mem(syscxt, pc);
 
     return opcode == 0x20;
 }

@@ -35,7 +35,7 @@ typedef struct dbg_cxt_s
     volatile bool broken;
     bool exit;
     uint32_t breakpoints[MAX_BREAKPOINTS];
-    mem_space_t *mem_space;
+    sys_cxt_t syscxt;
     dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
 } dbg_cxt_t;
 
@@ -138,18 +138,18 @@ static void cmd_next(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
 
         while(pc != cpu_get_reg(REG_PC))
         {
-            step6502();
+            cpu_step();
         }
     }
     else
     {
-        step6502();
+        cpu_step();
     }
 }
 
 static void cmd_step(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
 {
-    step6502();
+    cpu_step();
 }
 
 static void cmd_set_breakpoint(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
@@ -262,7 +262,7 @@ static void cmd_examine(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params
             printf("%04x:", addr + 16*(i/16));
 
         ++col;
-        printf(" %02x", cxt->mem_space->read(addr+i));
+        printf(" %02x", sys_read_mem(cxt->syscxt,addr+i));
 
         if(col == 16)
         {
@@ -395,7 +395,7 @@ void sighandle(int s)
     cxt.broken = true;
 }
 
-void debug_run(mem_space_t *mem_space, char *labels_file)
+void debug_run(sys_cxt_t system_cxt, char *labels_file)
 {
     char disbuf[256];
     char inbuf[256];
@@ -409,7 +409,7 @@ void debug_run(mem_space_t *mem_space, char *labels_file)
     dbg_cmd_t *cmd = NULL;
 
     cxt.broken = true;
-    cxt.mem_space = mem_space;
+    cxt.syscxt = system_cxt;
 
     sigact.sa_flags = 0;
     sigemptyset(&sigact.sa_mask);
@@ -433,7 +433,7 @@ void debug_run(mem_space_t *mem_space, char *labels_file)
     {
         if(cxt.broken)
         {
-            disassemble(sizeof(disbuf), disbuf);
+            cpu_disassemble(sizeof(disbuf), disbuf);
             printf("%s\n", disbuf);
             printf("cbemu>");
             fflush(stdout);
@@ -470,7 +470,7 @@ void debug_run(mem_space_t *mem_space, char *labels_file)
         }
         else
         {
-            step6502();
+            cpu_step();
         }
 
         if(dbg_eval_breakpoints(&cxt, cpu_get_reg(REG_PC)))

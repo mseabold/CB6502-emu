@@ -9,6 +9,7 @@
 #include <stdbool.h>
 
 #include "mem.h"
+#include "sys.h"
 
 typedef enum
 {
@@ -29,44 +30,64 @@ typedef struct cpu_regs_s
     uint16_t pc;
     uint8_t s;
 } cpu_regs_t;
-/*
- * Callback function prototypes for 6502 memory space access.
- */
 
 /**
  * Initialize the 6502 emulator. This sets the memory access functions as well as performs
  * an optional initial reset6502().
  *
- * @param mem_space Handler table for the systems memory bus interface.
- * @param reset     Perform a reset6502 as well as initialization.
+ * @param system_cxt    Handle of the global system context. The CPU uses this to access the
+ *                      memory space as well as check the status of the interrupt vectors.
+ * @param reset         Perform a reset6502 as well as initialization.
  */
-void init6502(mem_space_t *mem_space, bool reset);
+void cpu_init(sys_cxt_t system_cxt, bool reset);
 
 /**
  * Resets the 6502 emulator and forces it to process the reset vector.
  */
-void reset6502(void);
-
-/**
- * Executes 6502 code up to the next specified count of clock cycles.
- */
-void exec6502(uint32_t tickcount);
+void cpu_reset(void);
 
 /**
  * Executes a single instruction
+ *
+ * @return The number of executed cycles.
  */
-void step6502(void);
+uint8_t cpu_step(void);
 
-
-/** TODO interrupts
- * I want to eventually change this to a voting mechanism so that different modules
- * can "pull down" the IRQ line and the IRQ handler will continue to be processed
- * since it is level triggered.
+/**
+ * Disassemble the current opcode into the supplied string buffer.
+ *
+ * @param buf_len   The length of the supplied buffer.
+ * @param buf       Buffer to hold the disassembly string.
  */
-void disassemble(size_t bufLen, char *buf);
+void cpu_disassemble(size_t bufLen, char *buf);
 
+/**
+ * Get the interger value of a single CPU register.
+ *
+ * @param reg The CPU register to query.
+ *
+ * @return The value of the queried register.
+ */
 uint16_t cpu_get_reg(cpu_reg_t reg);
+
+/**
+ * Get the values of all the CPU regsiters.
+ *
+ * @param[out] regs     Pointer to a structure to hold all the register values.
+ */
 void cpu_get_regs(cpu_regs_t *regs);
 
+/**
+ * Get the length in bytes of the current opcode + parameters.
+ *
+ * @return The length of the opcode.
+ */
 uint8_t cpu_get_op_len(void);
+
+/**
+ * Checks whether the current opcode is a jsr (useful for debugger to step over
+ * subroutine calls).
+ *
+ * @return True if the opcode is a jsr.
+ */
 bool cpu_is_subroutine(void);
