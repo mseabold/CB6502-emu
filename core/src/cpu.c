@@ -1,4 +1,4 @@
-/* 
+/*
  * (c) 2022 Matt Seabold
  *
  * Originally based on Make Chamber's Fake6502:
@@ -12,17 +12,6 @@
 #include <string.h>
 #include "cpu.h"
 #include "mem.h"
-
-//6502 defines
-#define UNDOCUMENTED //when this is defined, undocumented opcodes are handled.
-                     //otherwise, they're simply treated as NOPs.
-
-#if 0
-#define NES_CPU      //when this is defined, the binary-coded decimal (BCD)
-                     //status flag is not honored by ADC and SBC. the 2A03
-                     //CPU in the Nintendo Entertainment System does not
-                     //support BCD operation.
-#endif
 
 #define FLAG_CARRY     0x01
 #define FLAG_ZERO      0x02
@@ -54,25 +43,38 @@
 
 
 //flag calculation macros
-#define zerocalc(n) {\
-    if ((n) & 0x00FF) clearzero();\
-        else setzero();\
-}
+#define zerocalc(n) \
+    do { \
+        if((n) & 0x00FF) \
+            clearzero(); \
+        else \
+            setzero(); \
+    } while(0)
 
-#define signcalc(n) {\
-    if ((n) & 0x0080) setsign();\
-        else clearsign();\
-}
+#define signcalc(n) \
+    do { \
+        if((n) & 0x0080) \
+            setsign(); \
+        else \
+            clearsign(); \
+    } while(0)
 
-#define carrycalc(n) {\
-    if ((n) & 0xFF00) setcarry();\
-        else clearcarry();\
-}
+#define carrycalc(n) \
+    do { \
+    if((n) & 0xFF00) \
+        setcarry(); \
+    else \
+        clearcarry(); \
+    } while(0)
 
-#define overflowcalc(n, m, o) { /* n = result, m = accumulator, o = memory */ \
-    if (((n) ^ (uint16_t)(m)) & ((n) ^ (o)) & 0x0080) setoverflow();\
-        else clearoverflow();\
-}
+/* n = result, m = accumulator, o = memory */
+#define overflowcalc(n, m, o) \
+    do { \
+        if(((n) ^ (uint16_t)(m)) & ((n) ^ (o)) & 0x0080) \
+            setoverflow(); \
+        else \
+            clearoverflow(); \
+    } while(0)
 
 typedef enum {
     IMP,
@@ -126,28 +128,33 @@ uint8_t opcode, oldstatus;
 static mem_space_t *mem_space = (mem_space_t *)&dummy_space;
 
 //a few general functions used by various other functions
-void push16(uint16_t pushval) {
+void push16(uint16_t pushval)
+{
     mem_space->write(BASE_STACK + sp, (pushval >> 8) & 0xFF);
     mem_space->write(BASE_STACK + ((sp - 1) & 0xFF), pushval & 0xFF);
     sp -= 2;
 }
 
-void push8(uint8_t pushval) {
+void push8(uint8_t pushval)
+{
     mem_space->write(BASE_STACK + sp--, pushval);
 }
 
-uint16_t pull16() {
+uint16_t pull16()
+{
     uint16_t temp16;
     temp16 = mem_space->read(BASE_STACK + ((sp + 1) & 0xFF)) | ((uint16_t)mem_space->read(BASE_STACK + ((sp + 2) & 0xFF)) << 8);
     sp += 2;
     return(temp16);
 }
 
-uint8_t pull8() {
+uint8_t pull8()
+{
     return (mem_space->read(BASE_STACK + ++sp));
 }
 
-void reset6502() {
+void reset6502()
+{
     pc = (uint16_t)mem_space->read(0xFFFC) | ((uint16_t)mem_space->read(0xFFFD) << 8);
     a = 0;
     x = 0;
@@ -162,65 +169,88 @@ static void (*optable[256])();
 uint8_t penaltyop, penaltyaddr;
 
 //addressing mode functions, calculates effective addresses
-static void imp() { //implied
+
+//implied
+static void imp()
+{
 }
 
-static void acc() { //accumulator
+//accumulator
+static void acc()
+{
 }
 
-static void imm() { //immediate
+//immediate
+static void imm()
+{
     ea = pc++;
 }
 
-static void zp() { //zero-page
+//zero-page
+static void zp()
+{
     ea = (uint16_t)mem_space->read((uint16_t)pc++);
 }
 
-static void zpx() { //zero-page,X
+//zero-page,X
+static void zpx()
+{
     ea = ((uint16_t)mem_space->read((uint16_t)pc++) + (uint16_t)x) & 0xFF; //zero-page wraparound
 }
 
-static void zpy() { //zero-page,Y
+//zero-page,Y
+static void zpy()
+{
     ea = ((uint16_t)mem_space->read((uint16_t)pc++) + (uint16_t)y) & 0xFF; //zero-page wraparound
 }
 
-static void rel() { //relative for branch ops (8-bit immediate value, sign-extended)
+//relative for branch ops (8-bit immediate value, sign-extended)
+static void rel()
+{
     reladdr = (uint16_t)mem_space->read(pc++);
-    if (reladdr & 0x80) reladdr |= 0xFF00;
+    if(reladdr & 0x80) reladdr |= 0xFF00;
 }
 
-static void abso() { //absolute
+//absolute
+static void abso()
+{
     ea = (uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8);
     pc += 2;
 }
 
-static void absx() { //absolute,X
+//absolute,X
+static void absx()
+{
     uint16_t startpage;
     ea = ((uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8));
     startpage = ea & 0xFF00;
     ea += (uint16_t)x;
 
-    if (startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
+    if(startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
         penaltyaddr = 1;
     }
 
     pc += 2;
 }
 
-static void absy() { //absolute,Y
+//absolute,Y
+static void absy()
+{
     uint16_t startpage;
     ea = ((uint16_t)mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8));
     startpage = ea & 0xFF00;
     ea += (uint16_t)y;
 
-    if (startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
+    if(startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
         penaltyaddr = 1;
     }
 
     pc += 2;
 }
 
-static void ind() { //indirect
+//indirect
+static void ind()
+{
     uint16_t eahelp, eahelp2;
     eahelp = (uint16_t)mem_space->read(pc) | (uint16_t)((uint16_t)mem_space->read(pc+1) << 8);
     eahelp2 = (eahelp & 0xFF00) | ((eahelp + 1) & 0x00FF); //replicate 6502 page-boundary wraparound bug
@@ -228,13 +258,17 @@ static void ind() { //indirect
     pc += 2;
 }
 
-static void indx() { // (indirect,X)
+// (indirect,X)
+static void indx()
+{
     uint16_t eahelp;
     eahelp = (uint16_t)(((uint16_t)mem_space->read(pc++) + (uint16_t)x) & 0xFF); //zero-page wraparound for table pointer
     ea = (uint16_t)mem_space->read(eahelp & 0x00FF) | ((uint16_t)mem_space->read((eahelp+1) & 0x00FF) << 8);
 }
 
-static void indy() { // (indirect),Y
+// (indirect),Y
+static void indy()
+{
     uint16_t eahelp, eahelp2, startpage;
     eahelp = (uint16_t)mem_space->read(pc++);
     eahelp2 = (eahelp & 0xFF00) | ((eahelp + 1) & 0x00FF); //zero-page wraparound
@@ -242,16 +276,20 @@ static void indy() { // (indirect),Y
     startpage = ea & 0xFF00;
     ea += (uint16_t)y;
 
-    if (startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
+    if(startpage != (ea & 0xFF00)) { //one cycle penlty for page-crossing on some opcodes
         penaltyaddr = 1;
     }
 }
 
-static void indz() { // (zp)
+// (zp)
+static void indz()
+{
     ea = (uint16_t)mem_space->read(pc++);
 }
 
-static void abin() { // (a,x)
+// (a,x)
+static void abin()
+{
     uint16_t eahelp;
     eahelp = (uint16_t) mem_space->read(pc) | ((uint16_t)mem_space->read(pc+1) << 8);
     eahelp += x;
@@ -259,7 +297,8 @@ static void abin() { // (a,x)
     pc += 2;
 }
 
-static void zprel() {
+static void zprel()
+{
     ea = mem_space->read(pc++);
     reladdr = (uint16_t)mem_space->read(pc++);
 
@@ -267,145 +306,185 @@ static void zprel() {
         reladdr |= 0xff00;
 }
 
-static uint16_t getvalue() {
-    if (addrtable[opcode] == ACC) return((uint16_t)a);
-        else return((uint16_t)mem_space->read(ea));
+static uint16_t getvalue()
+{
+    if(addrtable[opcode] == ACC)
+        return((uint16_t)a);
+    else
+        return((uint16_t)mem_space->read(ea));
 }
 
-static uint16_t getvalue16() {
+static uint16_t getvalue16()
+{
     return((uint16_t)mem_space->read(ea) | ((uint16_t)mem_space->read(ea+1) << 8));
 }
 
-static void putvalue(uint16_t saveval) {
-    if (addrtable[opcode] == ACC) a = (uint8_t)(saveval & 0x00FF);
-        else mem_space->write(ea, (saveval & 0x00FF));
+static void putvalue(uint16_t saveval)
+{
+    if(addrtable[opcode] == ACC)
+        a = (uint8_t)(saveval & 0x00FF);
+    else
+        mem_space->write(ea, (saveval & 0x00FF));
 }
 
 
 //instruction handler functions
-static void adc() {
+static void adc()
+{
     penaltyop = 1;
     value = getvalue();
     result = (uint16_t)a + value + (uint16_t)(status & FLAG_CARRY);
-   
+
     carrycalc(result);
     zerocalc(result);
     overflowcalc(result, a, value);
     signcalc(result);
-    
-    #ifndef NES_CPU
-    if (status & FLAG_DECIMAL) {
+
+    if(status & FLAG_DECIMAL)
+    {
         clearcarry();
-        
-        if ((a & 0x0F) > 0x09) {
+
+        if((a & 0x0F) > 0x09)
+        {
             a += 0x06;
         }
-        if ((a & 0xF0) > 0x90) {
+        if((a & 0xF0) > 0x90)
+        {
             a += 0x60;
             setcarry();
         }
-        
+
         clockticks6502++;
     }
-    #endif
-   
+
     saveaccum(result);
 }
 
-static void and() {
+static void and()
+{
     penaltyop = 1;
     value = getvalue();
     result = (uint16_t)a & value;
-   
+
     zerocalc(result);
     signcalc(result);
-   
+
     saveaccum(result);
 }
 
-static void asl() {
+static void asl()
+{
     value = getvalue();
     result = value << 1;
 
     carrycalc(result);
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void bcc() {
-    if ((status & FLAG_CARRY) == 0) {
+static void bcc()
+{
+    if((status & FLAG_CARRY) == 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bcs() {
-    if ((status & FLAG_CARRY) == FLAG_CARRY) {
+static void bcs()
+{
+    if((status & FLAG_CARRY) == FLAG_CARRY)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void beq() {
-    if ((status & FLAG_ZERO) == FLAG_ZERO) {
+static void beq()
+{
+    if((status & FLAG_ZERO) == FLAG_ZERO)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bit() {
+static void bit()
+{
     value = getvalue();
     result = (uint16_t)a & value;
-   
+
     zerocalc(result);
     status = (status & 0x3F) | (uint8_t)(value & 0xC0);
 }
 
-static void bmi() {
-    if ((status & FLAG_SIGN) == FLAG_SIGN) {
+static void bmi()
+{
+    if((status & FLAG_SIGN) == FLAG_SIGN)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bne() {
-    if ((status & FLAG_ZERO) == 0) {
+static void bne()
+{
+    if((status & FLAG_ZERO) == 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bpl() {
-    if ((status & FLAG_SIGN) == 0) {
+static void bpl()
+{
+    if((status & FLAG_SIGN) == 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
 #ifdef SUPPORT_65C02
-static void bra() {
+static void bra()
+{
     oldpc = pc;
     pc += reladdr;
-    if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-        else clockticks6502++;
+    if((oldpc & 0xFF00) != (pc & 0xFF00))
+        clockticks6502 += 2; //check if jump crossed a page boundary
+    else
+        clockticks6502++;
 }
 #endif
 
-static void brk() {
+static void brk()
+{
     pc++;
     push16(pc); //push next instruction address onto stack
     push8(status | FLAG_BREAK); //push CPU status to stack
@@ -413,183 +492,235 @@ static void brk() {
     pc = (uint16_t)mem_space->read(0xFFFE) | ((uint16_t)mem_space->read(0xFFFF) << 8);
 }
 
-static void bvc() {
-    if ((status & FLAG_OVERFLOW) == 0) {
+static void bvc()
+{
+    if((status & FLAG_OVERFLOW) == 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bvs() {
-    if ((status & FLAG_OVERFLOW) == FLAG_OVERFLOW) {
+static void bvs()
+{
+    if((status & FLAG_OVERFLOW) == FLAG_OVERFLOW)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void clc() {
+static void clc()
+{
     clearcarry();
 }
 
-static void cld() {
+static void cld()
+{
     cleardecimal();
 }
 
-static void cli() {
+static void cli()
+{
     clearinterrupt();
 }
 
-static void clv() {
+static void clv()
+{
     clearoverflow();
 }
 
-static void cmp() {
+static void cmp()
+{
     penaltyop = 1;
     value = getvalue();
     result = (uint16_t)a - value;
-   
-    if (a >= (uint8_t)(value & 0x00FF)) setcarry();
-        else clearcarry();
-    if (a == (uint8_t)(value & 0x00FF)) setzero();
-        else clearzero();
+
+    if(a >= (uint8_t)(value & 0x00FF))
+        setcarry();
+    else
+        clearcarry();
+
+    if(a == (uint8_t)(value & 0x00FF))
+        setzero();
+    else
+        clearzero();
+
     signcalc(result);
 }
 
-static void cpx() {
+static void cpx()
+{
     value = getvalue();
     result = (uint16_t)x - value;
-   
-    if (x >= (uint8_t)(value & 0x00FF)) setcarry();
-        else clearcarry();
-    if (x == (uint8_t)(value & 0x00FF)) setzero();
-        else clearzero();
+
+    if(x >= (uint8_t)(value & 0x00FF))
+        setcarry();
+    else
+        clearcarry();
+
+    if(x == (uint8_t)(value & 0x00FF))
+        setzero();
+    else
+        clearzero();
+
     signcalc(result);
 }
 
-static void cpy() {
+static void cpy()
+{
     value = getvalue();
     result = (uint16_t)y - value;
-   
-    if (y >= (uint8_t)(value & 0x00FF)) setcarry();
-        else clearcarry();
-    if (y == (uint8_t)(value & 0x00FF)) setzero();
-        else clearzero();
+
+    if(y >= (uint8_t)(value & 0x00FF))
+        setcarry();
+    else
+        clearcarry();
+
+    if(y == (uint8_t)(value & 0x00FF))
+        setzero();
+    else
+        clearzero();
+
     signcalc(result);
 }
 
-static void dec() {
+static void dec()
+{
     value = getvalue();
     result = value - 1;
-   
+
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void dex() {
+static void dex()
+{
     x--;
-   
+
     zerocalc(x);
     signcalc(x);
 }
 
-static void dey() {
+static void dey()
+{
     y--;
-   
+
     zerocalc(y);
     signcalc(y);
 }
 
-static void eor() {
+static void eor()
+{
     penaltyop = 1;
     value = getvalue();
     result = (uint16_t)a ^ value;
-   
+
     zerocalc(result);
     signcalc(result);
-   
+
     saveaccum(result);
 }
 
-static void inc() {
+static void inc()
+{
     value = getvalue();
     result = value + 1;
-   
+
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void inx() {
+static void inx()
+{
     x++;
-   
+
     zerocalc(x);
     signcalc(x);
 }
 
-static void iny() {
+static void iny()
+{
     y++;
-   
+
     zerocalc(y);
     signcalc(y);
 }
 
-static void jmp() {
+static void jmp()
+{
     pc = ea;
 }
 
-static void jsr() {
+static void jsr()
+{
     push16(pc - 1);
     pc = ea;
 }
 
-static void lda() {
+static void lda()
+{
     penaltyop = 1;
     value = getvalue();
     a = (uint8_t)(value & 0x00FF);
-   
+
     zerocalc(a);
     signcalc(a);
 }
 
-static void ldx() {
+static void ldx()
+{
     penaltyop = 1;
     value = getvalue();
     x = (uint8_t)(value & 0x00FF);
-   
+
     zerocalc(x);
     signcalc(x);
 }
 
-static void ldy() {
+static void ldy()
+{
     penaltyop = 1;
     value = getvalue();
     y = (uint8_t)(value & 0x00FF);
-   
+
     zerocalc(y);
     signcalc(y);
 }
 
-static void lsr() {
+static void lsr()
+{
     value = getvalue();
     result = value >> 1;
-   
-    if (value & 1) setcarry();
-        else clearcarry();
+
+    if(value & 1)
+        setcarry();
+    else
+        clearcarry();
+
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void nop() {
-    switch (opcode) {
+static void nop()
+{
+    switch (opcode)
+    {
+        /* TODO is this still the case in 65C02? */
         case 0x1C:
         case 0x3C:
         case 0x5C:
@@ -601,195 +732,228 @@ static void nop() {
     }
 }
 
-static void ora() {
+static void ora()
+{
     penaltyop = 1;
     value = getvalue();
     result = (uint16_t)a | value;
-   
+
     zerocalc(result);
     signcalc(result);
-   
+
     saveaccum(result);
 }
 
-static void pha() {
+static void pha()
+{
     push8(a);
 }
 
-static void php() {
+static void php()
+{
     push8(status | FLAG_BREAK);
 }
 
-static void phx() {
+static void phx()
+{
     push8(x);
 }
 
-static void phy() {
+static void phy()
+{
     push8(y);
 }
 
-static void pla() {
+static void pla()
+{
     a = pull8();
-   
+
     zerocalc(a);
     signcalc(a);
 }
 
-static void plp() {
+static void plp()
+{
     status = pull8() | FLAG_CONSTANT;
 }
 
-static void plx() {
+static void plx()
+{
     x = pull8();
 
     zerocalc(x);
     signcalc(x);
 }
 
-static void ply() {
+static void ply()
+{
     y = pull8();
 
     zerocalc(y);
     signcalc(y);
 }
 
-static void rol() {
+static void rol()
+{
     value = getvalue();
     result = (value << 1) | (status & FLAG_CARRY);
-   
+
     carrycalc(result);
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void ror() {
+static void ror()
+{
     value = getvalue();
     result = (value >> 1) | ((status & FLAG_CARRY) << 7);
-   
-    if (value & 1) setcarry();
-        else clearcarry();
+
+    if(value & 1)
+        setcarry();
+    else
+        clearcarry();
+
     zerocalc(result);
     signcalc(result);
-   
+
     putvalue(result);
 }
 
-static void rti() {
+static void rti()
+{
     status = pull8();
     value = pull16();
     pc = value;
 }
 
-static void rts() {
+static void rts()
+{
     value = pull16();
     pc = value + 1;
 }
 
-static void sbc() {
+static void sbc()
+{
     penaltyop = 1;
     value = getvalue() ^ 0x00FF;
     result = (uint16_t)a + value + (uint16_t)(status & FLAG_CARRY);
-   
+
     carrycalc(result);
     zerocalc(result);
     overflowcalc(result, a, value);
     signcalc(result);
 
-    #ifndef NES_CPU
-    if (status & FLAG_DECIMAL) {
+    if(status & FLAG_DECIMAL)
+    {
         clearcarry();
-        
+
         a -= 0x66;
-        if ((a & 0x0F) > 0x09) {
+        if((a & 0x0F) > 0x09)
+        {
             a += 0x06;
         }
-        if ((a & 0xF0) > 0x90) {
+        if((a & 0xF0) > 0x90)
+        {
             a += 0x60;
             setcarry();
         }
-        
+
         clockticks6502++;
     }
-    #endif
-   
+
     saveaccum(result);
 }
 
-static void sec() {
+static void sec()
+{
     setcarry();
 }
 
-static void sed() {
+static void sed()
+{
     setdecimal();
 }
 
-static void sei() {
+static void sei()
+{
     setinterrupt();
 }
 
-static void sta() {
+static void sta()
+{
     putvalue(a);
 }
 
-static void stx() {
+static void stx()
+{
     putvalue(x);
 }
 
-static void sty() {
+static void sty()
+{
     putvalue(y);
 }
 
-static void stz() {
+static void stz()
+{
     putvalue(0);
 }
 
-static void tax() {
+static void tax()
+{
     x = a;
-   
+
     zerocalc(x);
     signcalc(x);
 }
 
-static void tay() {
+static void tay()
+{
     y = a;
-   
+
     zerocalc(y);
     signcalc(y);
 }
 
-static void tsx() {
+static void tsx()
+{
     x = sp;
-   
+
     zerocalc(x);
     signcalc(x);
 }
 
-static void txa() {
+static void txa()
+{
     a = x;
-   
+
     zerocalc(a);
     signcalc(a);
 }
 
-static void txs() {
+static void txs()
+{
     sp = x;
 }
 
-static void tya() {
+static void tya()
+{
     a = y;
-   
+
     zerocalc(a);
     signcalc(a);
 }
 
-static void wai() {
+static void wai()
+{
     //XXX
     while(1);
 }
 
-static void trb() {
+static void trb()
+{
     uint8_t test;
     uint8_t result;
     uint8_t value;
@@ -802,7 +966,8 @@ static void trb() {
     saveaccum(result);
 }
 
-static void tsb() {
+static void tsb()
+{
     uint8_t test;
     uint8_t result;
     uint8_t value;
@@ -815,7 +980,8 @@ static void tsb() {
     saveaccum(result);
 }
 
-static void rmb() {
+static void rmb()
+{
     uint8_t bit;
     uint8_t value;
     uint8_t result;
@@ -828,7 +994,8 @@ static void rmb() {
     saveaccum(result);
 }
 
-static void smb() {
+static void smb()
+{
     uint8_t bit;
     uint8_t value;
     uint8_t result;
@@ -841,97 +1008,47 @@ static void smb() {
     saveaccum(result);
 }
 
-static void bbr() {
+static void bbr()
+{
     uint8_t bit;
     uint8_t value;
 
     bit = (opcode >> 8);
     value = getvalue();
 
-    if((value & bit) == 0) {
+    if((value & bit) == 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-static void bbs() {
+static void bbs()
+{
     uint8_t bit;
     uint8_t value;
 
     bit = (opcode >> 8);
     value = getvalue();
 
-    if((value & bit) != 0) {
+    if((value & bit) != 0)
+    {
         oldpc = pc;
         pc += reladdr;
-        if ((oldpc & 0xFF00) != (pc & 0xFF00)) clockticks6502 += 2; //check if jump crossed a page boundary
-            else clockticks6502++;
+        if((oldpc & 0xFF00) != (pc & 0xFF00))
+            clockticks6502 += 2; //check if jump crossed a page boundary
+        else
+            clockticks6502++;
     }
 }
 
-//undocumented instructions
-#ifdef UNDOCUMENTED
-    static void lax() {
-        lda();
-        ldx();
-    }
 
-    static void sax() {
-        sta();
-        stx();
-        putvalue(a & x);
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void dcp() {
-        dec();
-        cmp();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void isb() {
-        inc();
-        sbc();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void slo() {
-        asl();
-        ora();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void rla() {
-        rol();
-        and();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void sre() {
-        lsr();
-        eor();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-
-    static void rra() {
-        ror();
-        adc();
-        if (penaltyop && penaltyaddr) clockticks6502--;
-    }
-#else
-    #define lax nop
-    #define sax nop
-    #define dcp nop
-    #define isb nop
-    #define slo nop
-    #define rla nop
-    #define sre nop
-    #define rra nop
-#endif
-
-static void (*addr_handlers[NUM_ADDR_MODES])() = {
+static void (*addr_handlers[NUM_ADDR_MODES])() =
+{
     imp,
     acc,
     imm,
@@ -950,7 +1067,8 @@ static void (*addr_handlers[NUM_ADDR_MODES])() = {
     zprel
 };
 
-static uint8_t addr_lengths[NUM_ADDR_MODES] = {
+static uint8_t addr_lengths[NUM_ADDR_MODES] =
+{
     1,
     1,
     2,
@@ -969,9 +1087,8 @@ static uint8_t addr_lengths[NUM_ADDR_MODES] = {
     3
 };
 
-
-#ifdef SUPPORT_65C02
-static addr_mode_t addrtable[256] = {
+static addr_mode_t addrtable[256] =
+{
 /*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |       */
 /* 0 */     IMP, INDX,  IMP, INDX,   ZP,   ZP,   ZP,    ZP,  IMP,  IMM,  ACC,  IMM, ABSO, ABSO, ABSO, ZPREL, /* 0 */
 /* 1 */     REL, INDY, INDZ, INDY,   ZP,  ZPX,  ZPX,    ZP,  IMP, ABSY,  ACC, ABSY, ABSO, ABSX, ABSX, ZPREL, /* 1 */
@@ -991,7 +1108,8 @@ static addr_mode_t addrtable[256] = {
 /* F */     REL, INDY, INDZ, INDY,  ZPX,  ZPX,  ZPX,    ZP,  IMP, ABSY,  IMP, ABSY, ABSX, ABSX, ABSX, ZPREL, /* F */
 };
 
-static void (*optable[256])() = {
+static void (*optable[256])() =
+{
 /*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |      */
 /* 0 */      brk,  ora,  nop,  nop,  tsb,  ora,  asl,  rmb,  php,  ora,  asl,  nop,  tsb,  ora,  asl,  bbr, /* 0 */
 /* 1 */      bpl,  ora,  ora,  nop,  trb,  ora,  asl,  rmb,  clc,  ora,  inc,  nop,  trb,  ora,  asl,  bbr, /* 1 */
@@ -1011,7 +1129,8 @@ static void (*optable[256])() = {
 /* F */      beq,  sbc,  sbc,  nop,  nop,  sbc,  inc,  smb,  sed,  sbc,  plx,  nop,  nop,  sbc,  inc,  bbs  /* F */
 };
 
-static const uint32_t ticktable[256] = {
+static const uint32_t ticktable[256] =
+{
 /* 0 */      7,    6,    2,    8,    5,    3,    5,    5,    3,    2,    2,    2,    6,    4,    6,    5,  /* 0 */
 /* 1 */      2,    5,    5,    8,    5,    4,    6,    6,    2,    4,    2,    7,    6,    4,    7,    5,  /* 1 */
 /* 2 */      6,    6,    2,    8,    3,    3,    5,    5,    4,    2,    2,    2,    4,    4,    6,    5,  /* 2 */
@@ -1030,7 +1149,8 @@ static const uint32_t ticktable[256] = {
 /* F */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    4,    7,    4,    4,    7,    5   /* F */
 };
 
-static const char *mnemonics[256] = {
+static const char *mnemonics[256] =
+{
 /*         | 0    |  1    |  2    |  3    |  4    |  5    |  6    |  7    |  8    |  9    |  A    |  B    |  C    |  D    |  E    |  F  |     */
 /* 0 */      "BRK",  "ORA",  "NOP",  "NOP",  "TSB",  "ORA",  "ASL", "RMB0",  "PHP",  "ORA",  "ASL",  "NOP",  "TSB",  "ORA",  "ASL",  "SLO", /* 0 */
 /* 1 */      "BPL",  "ORA",  "ORA",  "NOP",  "TRB",  "ORA",  "ASL", "RMB1",  "CLC",  "ORA",  "NOP",  "NOP",  "TRB",  "ORA",  "ASL",  "SLO", /* 1 */
@@ -1049,68 +1169,6 @@ static const char *mnemonics[256] = {
 /* E */      "CPX",  "SBC",  "NOP",  "NOP",  "CPX",  "SBC",  "INC", "SMB6",  "INX",  "SBC",  "NOP",  "NOP",  "CPX",  "SBC",  "INC",  "ISB", /* E */
 /* F */      "BEQ",  "SBC",  "SBC",  "NOP",  "NOP",  "SBC",  "INC", "SMB7",  "SED",  "SBC",  "PLX",  "NOP",  "NOP",  "SBC",  "INC",  "ISB"  /* F */
 };
-#else
-static void (*addrtable[256])() = {
-/*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |     */
-/* 0 */     imp, indx,  imp, indx,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imm, abso, abso, abso, abso, /* 0 */
-/* 1 */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx, /* 1 */
-/* 2 */    abso, indx,  imp, indx,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imm, abso, abso, abso, abso, /* 2 */
-/* 3 */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx, /* 3 */
-/* 4 */     imp, indx,  imp, indx,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imm, abso, abso, abso, abso, /* 4 */
-/* 5 */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx, /* 5 */
-/* 6 */     imp, indx,  imp, indx,   zp,   zp,   zp,   zp,  imp,  imm,  acc,  imm,  ind, abso, abso, abso, /* 6 */
-/* 7 */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx, /* 7 */
-/* 8 */     imm, indx,  imm, indx,   zp,   zp,   zp,   zp,  imp,  imm,  imp,  imm, abso, abso, abso, abso, /* 8 */
-/* 9 */     rel, indy,  imp, indy,  zpx,  zpx,  zpy,  zpy,  imp, absy,  imp, absy, absx, absx, absy, absy, /* 9 */
-/* A */     imm, indx,  imm, indx,   zp,   zp,   zp,   zp,  imp,  imm,  imp,  imm, abso, abso, abso, abso, /* A */
-/* B */     rel, indy,  imp, indy,  zpx,  zpx,  zpy,  zpy,  imp, absy,  imp, absy, absx, absx, absy, absy, /* B */
-/* C */     imm, indx,  imm, indx,   zp,   zp,   zp,   zp,  imp,  imm,  imp,  imm, abso, abso, abso, abso, /* C */
-/* D */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx, /* D */
-/* E */     imm, indx,  imm, indx,   zp,   zp,   zp,   zp,  imp,  imm,  imp,  imm, abso, abso, abso, abso, /* E */
-/* F */     rel, indy,  imp, indy,  zpx,  zpx,  zpx,  zpx,  imp, absy,  imp, absy, absx, absx, absx, absx  /* F */
-};
-
-static void (*optable[256])() = {
-/*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |      */
-/* 0 */      brk,  ora,  nop,  slo,  nop,  ora,  asl,  slo,  php,  ora,  asl,  nop,  nop,  ora,  asl,  slo, /* 0 */
-/* 1 */      bpl,  ora,  nop,  slo,  nop,  ora,  asl,  slo,  clc,  ora,  nop,  slo,  nop,  ora,  asl,  slo, /* 1 */
-/* 2 */      jsr,  and,  nop,  rla,  bit,  and,  rol,  rla,  plp,  and,  rol,  nop,  bit,  and,  rol,  rla, /* 2 */
-/* 3 */      bmi,  and,  nop,  rla,  nop,  and,  rol,  rla,  sec,  and,  nop,  rla,  nop,  and,  rol,  rla, /* 3 */
-/* 4 */      rti,  eor,  nop,  sre,  nop,  eor,  lsr,  sre,  pha,  eor,  lsr,  nop,  jmp,  eor,  lsr,  sre, /* 4 */
-/* 5 */      bvc,  eor,  nop,  sre,  nop,  eor,  lsr,  sre,  cli,  eor,  nop,  sre,  nop,  eor,  lsr,  sre, /* 5 */
-/* 6 */      rts,  adc,  nop,  rra,  nop,  adc,  ror,  rra,  pla,  adc,  ror,  nop,  jmp,  adc,  ror,  rra, /* 6 */
-/* 7 */      bvs,  adc,  nop,  rra,  nop,  adc,  ror,  rra,  sei,  adc,  nop,  rra,  nop,  adc,  ror,  rra, /* 7 */
-/* 8 */      nop,  sta,  nop,  sax,  sty,  sta,  stx,  sax,  dey,  nop,  txa,  nop,  sty,  sta,  stx,  sax, /* 8 */
-/* 9 */      bcc,  sta,  nop,  nop,  sty,  sta,  stx,  sax,  tya,  sta,  txs,  nop,  nop,  sta,  nop,  nop, /* 9 */
-/* A */      ldy,  lda,  ldx,  lax,  ldy,  lda,  ldx,  lax,  tay,  lda,  tax,  nop,  ldy,  lda,  ldx,  lax, /* A */
-/* B */      bcs,  lda,  nop,  lax,  ldy,  lda,  ldx,  lax,  clv,  lda,  tsx,  lax,  ldy,  lda,  ldx,  lax, /* B */
-/* C */      cpy,  cmp,  nop,  dcp,  cpy,  cmp,  dec,  dcp,  iny,  cmp,  dex,  nop,  cpy,  cmp,  dec,  dcp, /* C */
-/* D */      bne,  cmp,  nop,  dcp,  nop,  cmp,  dec,  dcp,  cld,  cmp,  nop,  dcp,  nop,  cmp,  dec,  dcp, /* D */
-/* E */      cpx,  sbc,  nop,  isb,  cpx,  sbc,  inc,  isb,  inx,  sbc,  nop,  sbc,  cpx,  sbc,  inc,  isb, /* E */
-/* F */      beq,  sbc,  nop,  isb,  nop,  sbc,  inc,  isb,  sed,  sbc,  nop,  isb,  nop,  sbc,  inc,  isb  /* F */
-};
-
-static const uint32_t ticktable[256] = {
-/*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |     */
-/* 0 */      7,    6,    2,    8,    3,    3,    5,    5,    3,    2,    2,    2,    4,    4,    6,    6,  /* 0 */
-/* 1 */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7,  /* 1 */
-/* 2 */      6,    6,    2,    8,    3,    3,    5,    5,    4,    2,    2,    2,    4,    4,    6,    6,  /* 2 */
-/* 3 */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7,  /* 3 */
-/* 4 */      6,    6,    2,    8,    3,    3,    5,    5,    3,    2,    2,    2,    3,    4,    6,    6,  /* 4 */
-/* 5 */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7,  /* 5 */
-/* 6 */      6,    6,    2,    8,    3,    3,    5,    5,    4,    2,    2,    2,    5,    4,    6,    6,  /* 6 */
-/* 7 */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7,  /* 7 */
-/* 8 */      2,    6,    2,    6,    3,    3,    3,    3,    2,    2,    2,    2,    4,    4,    4,    4,  /* 8 */
-/* 9 */      2,    6,    2,    6,    4,    4,    4,    4,    2,    5,    2,    5,    5,    5,    5,    5,  /* 9 */
-/* A */      2,    6,    2,    6,    3,    3,    3,    3,    2,    2,    2,    2,    4,    4,    4,    4,  /* A */
-/* B */      2,    5,    2,    5,    4,    4,    4,    4,    2,    4,    2,    4,    4,    4,    4,    4,  /* B */
-/* C */      2,    6,    2,    8,    3,    3,    5,    5,    2,    2,    2,    2,    4,    4,    6,    6,  /* C */
-/* D */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7,  /* D */
-/* E */      2,    6,    2,    8,    3,    3,    5,    5,    2,    2,    2,    2,    4,    4,    6,    6,  /* E */
-/* F */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    2,    7,    4,    4,    7,    7   /* F */
-};
-#endif
-
 
 void init6502(mem_space_t *_mem_space, bool reset)
 {
@@ -1120,14 +1178,16 @@ void init6502(mem_space_t *_mem_space, bool reset)
         reset6502();
 }
 
-void nmi6502() {
+void nmi6502()
+{
     push16(pc);
     push8(status);
     status |= FLAG_INTERRUPT;
     pc = (uint16_t)mem_space->read(0xFFFA) | ((uint16_t)mem_space->read(0xFFFB) << 8);
 }
 
-void irq6502() {
+void irq6502()
+{
     push16(pc);
     push8(status);
     status |= FLAG_INTERRUPT;
@@ -1137,10 +1197,12 @@ void irq6502() {
 uint8_t callexternal = 0;
 void (*loopexternal)();
 
-void exec6502(uint32_t tickcount) {
+void exec6502(uint32_t tickcount)
+{
     clockgoal6502 += tickcount;
-   
-    while (clockticks6502 < clockgoal6502) {
+
+    while (clockticks6502 < clockgoal6502)
+    {
         opcode = mem_space->read(pc++);
         status |= FLAG_CONSTANT;
 
@@ -1150,24 +1212,17 @@ void exec6502(uint32_t tickcount) {
         (*addr_handlers[addrtable[opcode]])();
         (*optable[opcode])();
         clockticks6502 += ticktable[opcode];
-        if (penaltyop && penaltyaddr) clockticks6502++;
+        if(penaltyop && penaltyaddr) clockticks6502++;
 
         instructions++;
 
-        if (callexternal) (*loopexternal)();
+        if(callexternal) (*loopexternal)();
     }
 
 }
 
-void step6502() {
-//    if(pc == 0x81bc)
-//        printf("fat_init\n");
-//    else if(pc == 0x83bf)
-//        printf("fat_open\n");
-//    else if(pc == 0x8165)
-//        printf("fat cache block\n");
-//    else
-//        printf("0x%04x\n", pc);
+void step6502()
+{
     opcode = mem_space->read(pc++);
     status |= FLAG_CONSTANT;
 
@@ -1177,16 +1232,18 @@ void step6502() {
     (*addr_handlers[addrtable[opcode]])();
     (*optable[opcode])();
     clockticks6502 += ticktable[opcode];
-    if (penaltyop && penaltyaddr) clockticks6502++;
+    if(penaltyop && penaltyaddr) clockticks6502++;
     clockgoal6502 = clockticks6502;
 
     instructions++;
 
-    if (callexternal) (*loopexternal)();
+    if(callexternal) (*loopexternal)();
 }
 
-void hookexternal(void *funcptr) {
-    if (funcptr != (void *)NULL) {
+void hookexternal(void *funcptr)
+{
+    if(funcptr != (void *)NULL)
+    {
         loopexternal = funcptr;
         callexternal = 1;
     } else callexternal = 0;
