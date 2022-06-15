@@ -1,3 +1,4 @@
+#include "sys.h"
 #define _GNU_SOURCE
 #include "acia.h"
 #include <stdio.h>
@@ -84,6 +85,7 @@ typedef struct ACIA_Cxt_s
     uint32_t rx_avail;
 
     bool irq_pend;
+    sys_cxt_t syscxt;
 } ACIA_Cxt_t;
 
 static void check_rx_rdy(ACIA_Cxt_t *cxt)
@@ -102,9 +104,25 @@ static void eval_irq(ACIA_Cxt_t *cxt)
         irq = true;
 
     if(irq)
+    {
         cxt->stat_reg |= ACIA_STATUS_IRQ;
+
+        if(!cxt->irq_pend)
+        {
+            sys_vote_interrupt(cxt->syscxt, false, true);
+            cxt->irq_pend = true;
+        }
+    }
     else
+    {
         cxt->stat_reg &= ~ACIA_STATUS_IRQ;
+
+        if(cxt->irq_pend)
+        {
+            sys_vote_interrupt(cxt->syscxt, false, false);
+            cxt->irq_pend = false;
+        }
+    }
 }
 
 void *terminal_thread(void *p)
@@ -230,7 +248,7 @@ void *terminal_thread(void *p)
     return NULL;
 }
 
-acia_t acia_init(char *socketpath)
+acia_t acia_init(char *socketpath, sys_cxt_t system_cxt)
 {
     int fd;
     struct sockaddr_un sockname;
@@ -295,6 +313,7 @@ acia_t acia_init(char *socketpath)
     printf("ACIA listening on: %s\n", socketpath);
 
     cxt->rx_avail = ACIA_RX_BUF_SIZE;
+    cxt->syscxt = system_cxt;
 
     return (acia_t)cxt;
 }

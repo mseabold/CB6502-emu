@@ -156,19 +156,19 @@ int main(int argc, char *argv[])
         fprintf(stderr, "WARNING: ROM file does not fill up ROM. Some of ROM may be unitialized/0.\n");
     }
 
-    acia = acia_init(acia_socket);
-    if(acia == NULL)
-    {
-        fprintf(stderr, "Unable to initialize ACIA\n");
-        return 1;
-    }
-
     sys = sys_init(memory_read, memory_write);
     if(sys == NULL)
     {
         fprintf(stderr, "feck\n");
         return 1;
     }
+    acia = acia_init(acia_socket, sys);
+    if(acia == NULL)
+    {
+        fprintf(stderr, "Unable to initialize ACIA\n");
+        return 1;
+    }
+
     via = via_init();
     if(via == NULL)
     {

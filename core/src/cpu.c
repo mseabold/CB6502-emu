@@ -12,6 +12,7 @@
 #include <string.h>
 #include "cpu.h"
 #include "mem.h"
+#include "sys.h"
 
 #define FLAG_CARRY     0x01
 #define FLAG_ZERO      0x02
@@ -1189,9 +1190,18 @@ void irq6502()
 
 uint8_t cpu_step()
 {
+    uint32_t startticks = clockticks6502;
+
+    /* TODO NMI */
+    printf("sys: %u, flag: %u\n", sys_check_interrupt(syscxt, false), status & FLAG_INTERRUPT);
+    if(sys_check_interrupt(syscxt, false) && !(status & FLAG_INTERRUPT))
+    {
+        irq6502();
+        return 0; /* XXX */
+    }
+
     opcode = sys_read_mem(syscxt, pc++);
     status |= FLAG_CONSTANT;
-    uint32_t startticks = clockticks6502;
 
     penaltyop = 0;
     penaltyaddr = 0;
