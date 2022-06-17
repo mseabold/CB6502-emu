@@ -14,6 +14,7 @@
 #include "mem.h"
 #include "sdcard.h"
 #include "debugger.h"
+#include "at28c256.h"
 
 #include "bitbang_spi.h"
 
@@ -30,10 +31,11 @@
 //#define STEP
 
 static uint8_t RAM[RAM_SIZE];
-static uint8_t ROM[ROM_SIZE];
+static uint8_t ROM_DATA[ROM_SIZE];
 static sys_cxt_t sys;
 static acia_t acia;
 static via_t via;
+static at28c256_t rom;
 
 #define ADDR_IN_REGION(_addr, _base, _size) ((_addr) >= (_base) && (uint32_t)(_addr) < (uint32_t)(_base) + (_size))
 
@@ -47,7 +49,7 @@ static uint8_t memory_read(uint16_t address)
     }
     else if(ADDR_IN_REGION(address, ROM_BASE, ROM_SIZE-0x80))
     {
-        value = ROM[address-0x8000];
+        value = at28c256_read(rom, address-ROM_BASE);
     }
     else if(ADDR_IN_REGION(address, VIA_BASE, VIA_SIZE))
     {
@@ -79,6 +81,10 @@ static void memory_write(uint16_t address, uint8_t value)
     else if(ADDR_IN_REGION(address, VIA_BASE, VIA_SIZE))
     {
         via_write(via, (uint8_t)(address - VIA_BASE), value);
+    }
+    else if(ADDR_IN_REGION(address, ROM_BASE, ROM_SIZE))
+    {
+        at28c256_write(rom, address-ROM_BASE, value);
     }
 
 #ifdef STEP
@@ -140,7 +146,7 @@ int main(int argc, char *argv[])
 
     do
     {
-        read_result = read(rom_fd, &ROM[total_read], ROM_SIZE-total_read);
+        read_result = read(rom_fd, &ROM_DATA[total_read], ROM_SIZE-total_read);
 
         if(read_result > 0)
         {
@@ -179,6 +185,15 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Unable to unitialize VIA\n");
         return 1;
     }
+
+    rom = at28c256_init(sys, 0);
+    if(rom == AT28C256_INVALID_HANDLE)
+    {
+        fprintf(stderr, "Unable to initialize AT28C256\n");
+        return 1;
+    }
+    at28c256_load_image(rom, ROM_SIZE, ROM_DATA, 0);
+
     via_register_protocol(via, bitbang_spi_get_prot(), NULL);
     printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
     //printf("sdcard init %s\n", sdcard_init("/home/matt/git/CB6502/sddump.bin") ? "success" : "failure");
