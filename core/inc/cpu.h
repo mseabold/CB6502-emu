@@ -32,6 +32,13 @@ typedef struct cpu_regs_s
 } cpu_regs_t;
 
 /**
+ * Callback function to process elapsed CPU tick cycles.
+ *
+ * @param ticks Number of CPU ticks elapsed.
+ */
+typedef void (*cpu_tick_cb_t)(uint32_t ticks);
+
+/**
  * Initialize the 6502 emulator. This sets the memory access functions as well as performs
  * an optional initial reset6502().
  *
@@ -91,3 +98,9 @@ uint8_t cpu_get_op_len(void);
  * @return True if the opcode is a jsr.
  */
 bool cpu_is_subroutine(void);
+
+/**
+ * Allows a platform to register a tick callback. This can be useful for the platform to
+ * glue in timing to peripherals regardless of what process is driving the CPU.
+ */
+void cpu_set_tick_callback(cpu_tick_cb_t callback);

@@ -92,6 +92,10 @@ static mem_space_t mem_space = {
     memory_read
 };
 
+static void cpu_tick_callback(uint32_t ticks)
+{
+}
+
 int main(int argc, char *argv[])
 {
     int rom_fd;
@@ -179,6 +183,7 @@ int main(int argc, char *argv[])
     printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
     //printf("sdcard init %s\n", sdcard_init("/home/matt/git/CB6502/sddump.bin") ? "success" : "failure");
     cpu_init(sys, true);
+    cpu_set_tick_callback(cpu_tick_callback);
 
     if(0)
     {

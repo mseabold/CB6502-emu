@@ -8,6 +8,8 @@
 typedef struct sys_cxt_s *sys_cxt_t;
 #define SYS_CXT_INVALID NULL
 
+#define DEFAULT_TICKRATE_NS 1000
+
 /**
  * Initialized the a global emulator sys context. This context holds common
  * glue logic that connects all the emulators components such as bus read/read
@@ -75,5 +77,23 @@ uint8_t sys_read_mem(sys_cxt_t cxt, uint16_t addr);
  * @param[in] val The value to write to the specified address
  */
 void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val);
+
+/**
+ * Set the tickrate (ns per CPU/Bus tick) for the system.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] tickrate The system tickrate
+ */
+void sys_set_tickrate(sys_cxt_t cxt, uint32_t tickrate);
+
+/**
+ * Convert a number of ticks into nanoseconds using the system tickrate.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] ticks The number of elapsed ticks
+ *
+ * @return The number of elapsed ns (rounded down).
+ */
+uint64_t sys_convert_ticks_to_ns(sys_cxt_t cxt, uint32_t ticks);
 
 #endif

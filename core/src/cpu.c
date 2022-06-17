@@ -108,7 +108,8 @@ uint32_t clockticks6502 = 0, clockgoal6502 = 0;
 uint16_t oldpc, ea, reladdr, value, result;
 uint8_t opcode, oldstatus;
 
-sys_cxt_t syscxt;
+static sys_cxt_t syscxt;
+static cpu_tick_cb_t tick_callback;
 
 //a few general functions used by various other functions
 void push16(uint16_t pushval)
@@ -1167,6 +1168,7 @@ void cpu_init(sys_cxt_t system_cxt, bool reset)
         return;
 
     syscxt = system_cxt;
+    tick_callback = NULL;
 
     if(reset)
         cpu_reset();
@@ -1191,6 +1193,7 @@ void irq6502()
 uint8_t cpu_step()
 {
     uint32_t startticks = clockticks6502;
+    uint32_t elapsed;
 
     /* TODO NMI */
     printf("sys: %u, flag: %u\n", sys_check_interrupt(syscxt, false), status & FLAG_INTERRUPT);
@@ -1214,7 +1217,12 @@ uint8_t cpu_step()
 
     instructions++;
 
-    return (uint8_t)(clockticks6502 - startticks);
+    elapsed = clockticks6502 - startticks;
+
+    if(tick_callback)
+        tick_callback(elapsed);
+
+    return (uint8_t)elapsed;
 }
 
 void cpu_disassemble(size_t bufLen, char *buffer)
@@ -1334,4 +1342,9 @@ bool cpu_is_subroutine(void)
     uint8_t opcode = sys_read_mem(syscxt, pc);
 
     return opcode == 0x20;
+}
+
+void cpu_set_tick_callback(cpu_tick_cb_t callback)
+{
+    tick_callback = callback;
 }
