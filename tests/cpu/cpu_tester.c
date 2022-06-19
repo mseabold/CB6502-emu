@@ -85,7 +85,7 @@ void test_cpu_irq(void)
     TEST_ASSERT_NOT_NULL(cxt);
 
     test_mem_calls = test_cpu_irq_exepect;
-    num_test_mem_calls = 7;
+    num_test_mem_calls = 8;
     test_mem_idx = 0;
 
     cpu_init(cxt, true);
