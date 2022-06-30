@@ -13,8 +13,8 @@
 #include "via.h"
 #include "mem.h"
 #include "sdcard.h"
-#include "debugger.h"
 #include "at28c256.h"
+#include "dbgcli.h"
 
 #include "bitbang_spi.h"
 
@@ -49,7 +49,7 @@ static uint8_t memory_read(uint16_t address)
     }
     else if(ADDR_IN_REGION(address, ROM_BASE, ROM_SIZE-0x80))
     {
-        value = at28c256_read(rom, address-ROM_BASE);
+        value = at28c256_read(rom, address-0x8000);
     }
     else if(ADDR_IN_REGION(address, VIA_BASE, VIA_SIZE))
     {
@@ -111,6 +111,9 @@ int main(int argc, char *argv[])
     char *labels_file = NULL;
     char *acia_socket = (char *)ACIA_DEFAULT_SOCKNAME;
     int c;
+
+    dbgcli_config_t dbg_cfg;
+
     while((c = getopt(argc, argv, "l:s:")) != -1)
     {
         switch(c)
@@ -200,28 +203,17 @@ int main(int argc, char *argv[])
     cpu_init(sys, true);
     cpu_set_tick_callback(cpu_tick_callback);
 
-    if(0)
+    dbg_cfg.valid_flags = 0;
+
+    if(labels_file != NULL)
     {
-        char buf[16];
-        fgets(buf, 16, stdin);
+        dbg_cfg.valid_flags |= DBGCLI_CONFIG_FLAG_LABEL_FILE_VALID;
+        dbg_cfg.label_file = labels_file;
     }
 
-    debug_run(sys, labels_file);
+    dbgcli_run(sys, &dbg_cfg);
 
     acia_cleanup(acia);
-
-#if 0
-    while(1)
-    {
-        char buf[16];
-        step6502();
-#ifdef STEP
-        fgets(buf, 16, stdin);
-#endif
-    }
-
-    close(rom_fd);
-#endif
 
     return 0;
 }

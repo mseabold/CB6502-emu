@@ -6,6 +6,7 @@ option(ENABLE_TESTING "Enable the unit testing framework" OFF)
 
 add_subdirectory(core)
 add_subdirectory(plat/cb6502)
+add_subdirectory(frontend)
 add_subdirectory(io/sdcard)
 add_subdirectory(io/at28c256)
 

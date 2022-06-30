@@ -1196,7 +1196,6 @@ uint8_t cpu_step()
     uint32_t elapsed;
 
     /* TODO NMI */
-    printf("sys: %u, flag: %u\n", sys_check_interrupt(syscxt, false), status & FLAG_INTERRUPT);
     if(sys_check_interrupt(syscxt, false) && !(status & FLAG_INTERRUPT))
     {
         irq6502();

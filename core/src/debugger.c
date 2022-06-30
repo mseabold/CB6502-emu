@@ -30,34 +30,16 @@ typedef struct dbg_label_s
     bool used;
 } dbg_label_t;
 
-typedef struct dbg_cxt_s
+struct debug_s
 {
-    volatile bool broken;
+    volatile bool sw_break;
     bool exit;
     uint32_t breakpoints[MAX_BREAKPOINTS];
     sys_cxt_t syscxt;
     dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
-} dbg_cxt_t;
+};
 
-typedef struct cmd_param_s
-{
-    bool int_valid;
-    long ival;
-    char *sval;
-} cmd_param_t;
-
-typedef void (*dbg_cmd_handler_t)(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params);
-
-typedef struct dbg_cmd_s
-{
-    const char *longcmd;
-    char shortcmd;
-    dbg_cmd_handler_t handler;
-} dbg_cmd_t;
-
-static dbg_cxt_t cxt;
-
-static uint32_t hash_str(char *str)
+static uint32_t hash_str(const char *str)
 {
     uint32_t hash = FNV1a_OFFSET_BASIS;
 
@@ -71,7 +53,7 @@ static uint32_t hash_str(char *str)
     return hash;
 }
 
-static void add_label(char *name, uint16_t addr)
+static void add_label(debug_t handle, char *name, uint16_t addr)
 {
     dbg_label_t *label;
     uint32_t hash = hash_str(name);
@@ -80,16 +62,16 @@ static void add_label(char *name, uint16_t addr)
 
     for(i=0;i<LABEL_ENTRIES_PER_BUCKET;++i)
     {
-        if(!cxt.labels[bucket][i].used)
+        if(!handle->labels[bucket][i].used)
         {
-            label = &cxt.labels[bucket][i];
+            label = &handle->labels[bucket][i];
             label->address = addr;
             strncpy(label->label, name, MAX_LABEL_SIZE);
             label->key = hash;
             label->used = true;
             break;
         }
-        else if(cxt.labels[bucket][i].key == hash)
+        else if(handle->labels[bucket][i].key == hash)
         {
             //printf("duplicate label hash: %s, %s\n", name, cxt.labels[bucket][i].label);
         }
@@ -105,7 +87,7 @@ static void add_label(char *name, uint16_t addr)
     label->key = hash;
 }
 
-static dbg_label_t *find_label(char *name)
+static dbg_label_t *find_label(debug_t handle, const char *name)
 {
     uint32_t hash = hash_str(name);
     uint8_t i;
@@ -113,186 +95,62 @@ static dbg_label_t *find_label(char *name)
 
     for(i=0;i<LABEL_ENTRIES_PER_BUCKET;++i)
     {
-        if(cxt.labels[bucket][i].used && cxt.labels[bucket][i].key == hash)
+        if(handle->labels[bucket][i].used && handle->labels[bucket][i].key == hash)
         {
-            return &cxt.labels[bucket][i];
+            return &handle->labels[bucket][i];
         }
     }
 
     return NULL;
 }
 
-static void cmd_continue(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
+static bool dbg_eval_breakpoints(debug_t handle, uint16_t pc, debug_breakpoint_t *bphandle)
 {
-    cxt->broken = false;
-}
-
-static void cmd_next(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    uint16_t pc;
-
-    if(cpu_is_subroutine())
+    uint8_t i;
+    for(i=0; i<MAX_BREAKPOINTS; ++i)
     {
-        pc = cpu_get_reg(REG_PC);
-        pc += 3;
-
-        while(pc != cpu_get_reg(REG_PC))
+        if(handle->breakpoints[i] & BREAKPOINT_VALID_MASK && (handle->breakpoints[i] & BREAKPOINT_ADDR_MASK) == pc)
         {
-            cpu_step();
-        }
-    }
-    else
-    {
-        cpu_step();
-    }
-}
+            if(bphandle)
+                *bphandle = (debug_breakpoint_t)i;
 
-static void cmd_step(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    cpu_step();
-}
-
-static void cmd_set_breakpoint(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    uint8_t index;
-    uint16_t addr;
-    dbg_label_t *label;
-    bool valid = false;
-
-    if(num_params == 0)
-    {
-        for(index = 0; index < MAX_BREAKPOINTS; ++index)
-        {
-            if(cxt->breakpoints[index] & BREAKPOINT_VALID_MASK)
-            {
-                printf("%2u: 0x%04x\n", index, cxt->breakpoints[index] & BREAKPOINT_ADDR_MASK);
-            }
-        }
-    }
-    else if(num_params >= 1)
-    {
-        if(params[0].int_valid)
-        {
-            addr = (uint16_t)params[0].ival;
-            valid = true;
-        }
-        else
-        {
-            label = find_label(params[0].sval);
-
-            if(label != NULL)
-            {
-                addr = label->address;
-                valid = true;
-            }
-        }
-        for(index = 0; index < MAX_BREAKPOINTS && valid; ++index)
-        {
-            if(!(cxt->breakpoints[index] & BREAKPOINT_VALID_MASK))
-            {
-                cxt->breakpoints[index] = (uint32_t)addr | BREAKPOINT_VALID_MASK;
-                break;
-            }
-        }
-    }
-}
-
-static void cmd_registers(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    cpu_regs_t regs;
-    char flags[9];
-
-    cpu_get_regs(&regs);
-
-    flags[0] = (regs.s & 0x80) ? 'N' : '-';
-    flags[1] = (regs.s & 0x40) ? 'V' : '-';
-    flags[2] = '-';
-    flags[3] = (regs.s & 0x10) ? 'B' : '-';
-    flags[4] = (regs.s & 0x08) ? 'D' : '-';
-    flags[5] = (regs.s & 0x04) ? 'I' : '-';
-    flags[6] = (regs.s & 0x02) ? 'Z' : '-';
-    flags[7] = (regs.s & 0x01) ? 'C' : '-';
-    flags[8] = 0;
-
-    printf("\tA:  %02x\t\tSP: %02x\n", regs.a, regs.sp);
-    printf("\tX:  %02x\t\tY:  %02x\n", regs.x, regs.y);
-    printf("\tPC: %04x\tS:  %s\n", regs.pc, flags);
-}
-
-static void cmd_test(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    uint32_t i;
-    printf("Num Params: %u\n", num_params);
-
-    for(i=0; i<num_params; ++i)
-    {
-        printf("str:    %s\n", params[i].sval);
-        printf("int ok: %s\n", params[i].int_valid?"TRUE":"FALSE");
-        if(params[i].int_valid)
-            printf("int:    %ld\n", params[i].ival);
-    }
-}
-
-static void cmd_quit(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    cxt->exit = true;
-}
-
-static void cmd_examine(dbg_cxt_t *cxt, uint32_t num_params, cmd_param_t *params)
-{
-    uint16_t len;
-    uint16_t i;
-    uint16_t addr;
-    uint16_t col;
-
-    if(num_params == 0 || !params[0].int_valid || (num_params >= 2 && !params[1].int_valid))
-        return;
-
-    if(num_params > 1)
-        len = (uint16_t)params[1].ival;
-    else
-        len = 1;
-
-    addr = (uint16_t)params[0].ival;
-
-
-    for(i=0,col=0; i<len; ++i)
-    {
-        if(col == 0)
-            printf("%04x:", addr + 16*(i/16));
-
-        ++col;
-        printf(" %02x", sys_read_mem(cxt->syscxt,addr+i));
-
-        if(col == 16)
-        {
-            printf("\n");
-            col = 0;
+            return true;
         }
     }
 
-    if(col != 0)
-        printf("\n");
+    return false;
 }
 
-static dbg_cmd_t dbg_cmd_list[] = {
-    { "continue", 'c', cmd_continue },
-    { "next", 'n', cmd_next },
-    { "step", 's', cmd_step },
-    { "registers", 'r', cmd_registers },
-    { "breakpoint", 'b', cmd_set_breakpoint },
-    { "test", 't', cmd_test },
-    { "quit", 'q', cmd_quit },
-    { "examine", 'x', cmd_examine },
-};
+debug_t debug_init(sys_cxt_t system_cxt)
+{
+    debug_t handle;
 
-#define NUM_CMDS (sizeof(dbg_cmd_list)/sizeof(dbg_cmd_t))
+    if(system_cxt == NULL)
+        return NULL;
 
-static void read_labels(FILE *lfile)
+    handle = malloc(sizeof(struct debug_s));
+
+    if(handle == NULL)
+        return NULL;
+
+    memset(handle, 0, sizeof(struct debug_s));
+
+    handle->syscxt = system_cxt;
+
+    return handle;
+}
+
+bool debug_load_labels(debug_t handle, const char *labels_file)
 {
     char line[256];
     unsigned int addr;
     char name[256];
+    FILE *lfile;
+
+    lfile = fopen(labels_file, "r");
+
+    if(lfile == NULL)
+        return false;
 
     while(fgets(line, sizeof(line), lfile) != NULL)
     {
@@ -306,177 +164,182 @@ static void read_labels(FILE *lfile)
 
             /* Ignore empty and local scope (@) labels. */
             if(name[0] != 0 && name[0] != '@')
-                add_label(name, addr);
+                add_label(handle, name, addr);
         }
     }
+
+    fclose(lfile);
+
+    return true;
 }
 
-static dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *params)
+bool debug_set_breakpoint_addr(debug_t handle, debug_breakpoint_t *breakpoint_handle, uint16_t addr)
 {
-    dbg_cmd_t *ret = NULL;
-    dbg_cmd_t *cmd;
-    size_t inputlen = strlen(input);
-    int index;
-    char *token;
-    char *saveptr;
-    char *endptr;
-    long ival;
+    unsigned int index;
 
-    if(inputlen == 0 || num_params == NULL || params == NULL)
-        return NULL;
+    if(handle == NULL || breakpoint_handle == NULL)
+        return false;
 
-    *num_params = 0;
-
-    token = strtok_r(input, CMD_DELIM, &saveptr);
-
-    if(token == NULL)
-        return NULL;
-
-    inputlen = strlen(token);
-    for(index = 0; index < NUM_CMDS; ++index)
+    for(index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        cmd = &dbg_cmd_list[index];
-        if(inputlen == 1)
+        if(!(handle->breakpoints[index] & BREAKPOINT_VALID_MASK))
         {
-            if(token[0] == cmd->shortcmd)
-            {
-                ret = cmd;
-                break;
-            }
-        }
-        else
-        {
-            if(strcasecmp(token, cmd->longcmd) == 0)
-            {
-                ret = cmd;
-                break;
-            }
-        }
-    }
+            handle->breakpoints[index] = (uint32_t)addr | BREAKPOINT_VALID_MASK;
 
-    if(ret != NULL)
-    {
-        while(((token = strtok_r(NULL, CMD_DELIM, &saveptr)) != NULL) && (*num_params < MAX_PARAMS))
-        {
-            params[*num_params].sval = token;
+            *breakpoint_handle = (debug_breakpoint_t)index;
 
-            endptr = NULL;
-            ival = strtol(token, &endptr, 0);
-
-            if(endptr != NULL && *endptr == '\0')
-            {
-                params[*num_params].int_valid = true;
-                params[*num_params].ival = ival;
-            }
-            else
-                params[*num_params].int_valid = false;
-
-            (*num_params)++;
-        }
-    }
-
-    return ret;
-}
-
-static bool dbg_eval_breakpoints(dbg_cxt_t *cxt, uint16_t pc)
-{
-    uint8_t i;
-    for(i=0; i<MAX_BREAKPOINTS; ++i)
-    {
-        if(cxt->breakpoints[i] & BREAKPOINT_VALID_MASK && (cxt->breakpoints[i] & BREAKPOINT_ADDR_MASK) == pc)
             return true;
+        }
     }
 
     return false;
 }
 
-void sighandle(int s)
+bool debug_set_breakpoint_label(debug_t handle, debug_breakpoint_t *breakpoint_handle, const char *label)
 {
-    cxt.broken = true;
-}
+    unsigned int index;
+    dbg_label_t *label_info;
 
-void debug_run(sys_cxt_t system_cxt, char *labels_file)
-{
-    char disbuf[256];
-    char inbuf[256];
-    char *input;
-    uint32_t num_params;
-    cmd_param_t params[MAX_PARAMS];
-    struct sigaction sigact;
-    struct sigaction oldact;
-    FILE *labels;
+    if(handle == NULL || breakpoint_handle == NULL)
+        return false;
 
-    dbg_cmd_t *cmd = NULL;
+    label_info = find_label(handle, label);
 
-    cxt.broken = true;
-    cxt.syscxt = system_cxt;
+    if(label_info == NULL)
+        return false;
 
-    sigact.sa_flags = 0;
-    sigemptyset(&sigact.sa_mask);
-    sigact.sa_handler = sighandle;
-
-    sigaction(SIGINT, &sigact, &oldact);
-
-    if(labels_file != NULL)
+    for(index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        printf("Reading labels from :%s\n", labels_file);
+        if(!(handle->breakpoints[index] & BREAKPOINT_VALID_MASK))
+        {
+            handle->breakpoints[index] = (uint32_t)label_info->address | BREAKPOINT_VALID_MASK;
 
-        labels = fopen(labels_file, "r");
+            *breakpoint_handle = (debug_breakpoint_t)index;
 
-        if(labels != NULL)
-            read_labels(labels);
-        else
-            fprintf(stderr, "Unable to open labels file\n");
+            return true;
+        }
     }
 
-    while(!cxt.exit)
+    return false;
+}
+
+void debug_clear_breakpoint(debug_t handle, debug_breakpoint_t breakpoint_handle)
+{
+    unsigned int index;
+
+    if(handle == NULL)
+        return;
+
+    for(index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        if(cxt.broken)
+        handle->breakpoints[index] &= ~BREAKPOINT_VALID_MASK;
+    }
+}
+
+void debug_get_breakpoints(debug_t handle, unsigned int *num_breakpoints, breakpoint_info_t *breakpoints, unsigned int *total_breakpoints)
+{
+    unsigned int index, out_index;
+
+    if(total_breakpoints)
+        *total_breakpoints = 0;
+
+    if(handle == NULL)
+        return;
+
+    for(index = 0, out_index = 0; index < MAX_BREAKPOINTS; ++index)
+    {
+        if(handle->breakpoints[index] & BREAKPOINT_VALID_MASK)
         {
-            cpu_disassemble(sizeof(disbuf), disbuf);
-            printf("%s\n", disbuf);
-            printf("cbemu>");
-            fflush(stdout);
-            input = fgets(inbuf, 256, stdin);
+            if(total_breakpoints)
+                ++(*total_breakpoints);
 
-            if(input == NULL)
+            if(num_breakpoints && breakpoints && out_index < *num_breakpoints)
             {
-                cxt.exit = true;
-                continue;
+                breakpoints[out_index].address = handle->breakpoints[index] & BREAKPOINT_ADDR_MASK;
+                breakpoints[out_index].handle = (debug_breakpoint_t)index;
+                breakpoints[out_index].label = NULL; //TODO
+                ++out_index;
+            }
+        }
+    }
+
+    if(num_breakpoints)
+        *num_breakpoints = out_index;
+}
+
+bool debug_next(debug_t handle, debug_breakpoint_t *breakpoint_hit)
+{
+    uint16_t pc,next_pc;
+
+    if(handle == NULL)
+        return false;
+
+    if(cpu_is_subroutine())
+    {
+        next_pc = cpu_get_reg(REG_PC) + 3;
+
+        pc = cpu_get_reg(REG_PC);
+
+        handle->sw_break = false;
+        while(!handle->sw_break && next_pc != cpu_get_reg(REG_PC))
+        {
+            cpu_step();
+
+            if(dbg_eval_breakpoints(handle, pc, breakpoint_hit))
+            {
+                return true;
             }
 
-            input[strcspn(input, "\n")] = 0;
+            pc = cpu_get_reg(REG_PC);
+        }
 
-            if(strlen(input) == 0)
-            {
-                /* Repeat the last command */
-                if(cmd != NULL)
-                {
-                    cmd->handler(&cxt, num_params, params);
-                }
-                continue;
-            }
+        if(handle->sw_break)
+        {
+            if(breakpoint_hit)
+                *breakpoint_hit = BREAKPOINT_HANDLE_SW_REQUEST;
 
-            cmd = parse_cmd(input, &num_params, params);
+            return true;
+        }
+    }
+    else
+        cpu_step();
 
-            if(cmd != NULL)
-            {
-                cmd->handler(&cxt, num_params, params);
-            }
-            else
-            {
-                printf("Unknown command\n");
-            }
+    return false;
+}
+
+void debug_step(debug_t handle)
+{
+    if(handle == NULL)
+        return;
+
+    cpu_step();
+}
+
+void debug_run(debug_t handle, debug_breakpoint_t *breakpoint_hit)
+{
+    if(handle == NULL)
+        return;
+
+    handle->sw_break = false;
+
+    while(!handle->sw_break)
+    {
+        if(dbg_eval_breakpoints(handle, cpu_get_reg(REG_PC), breakpoint_hit))
+        {
+            return;
         }
         else
         {
             cpu_step();
         }
-
-        if(dbg_eval_breakpoints(&cxt, cpu_get_reg(REG_PC)))
-            cxt.broken = true;
     }
 
-    sigaction(SIGINT, &oldact, NULL);
-    printf("\n");
+    if(handle->sw_break && breakpoint_hit)
+        *breakpoint_hit = BREAKPOINT_HANDLE_SW_REQUEST;
+}
+
+void debug_break(debug_t handle)
+{
+    if(handle != NULL)
+        handle->sw_break = true;
 }
