@@ -24,7 +24,7 @@
 
 typedef struct dbg_label_s
 {
-    uint32_t key;
+    uint32_t hash;
     char label[MAX_LABEL_SIZE];
     uint16_t address;
     bool used;
@@ -67,11 +67,11 @@ static void add_label(debug_t handle, char *name, uint16_t addr)
             label = &handle->labels[bucket][i];
             label->address = addr;
             strncpy(label->label, name, MAX_LABEL_SIZE);
-            label->key = hash;
+            label->hash = hash;
             label->used = true;
             break;
         }
-        else if(handle->labels[bucket][i].key == hash)
+        else if(handle->labels[bucket][i].hash == hash)
         {
             //printf("duplicate label hash: %s, %s\n", name, cxt.labels[bucket][i].label);
         }
@@ -84,7 +84,7 @@ static void add_label(debug_t handle, char *name, uint16_t addr)
 
     label->address = addr;
     strncpy(label->label, name, MAX_LABEL_SIZE);
-    label->key = hash;
+    label->hash = hash;
 }
 
 static dbg_label_t *find_label(debug_t handle, const char *name)
@@ -95,7 +95,7 @@ static dbg_label_t *find_label(debug_t handle, const char *name)
 
     for(i=0;i<LABEL_ENTRIES_PER_BUCKET;++i)
     {
-        if(handle->labels[bucket][i].used && handle->labels[bucket][i].key == hash)
+        if(handle->labels[bucket][i].used && handle->labels[bucket][i].hash == hash && !strncmp(name, handle->labels[bucket][i].label, MAX_LABEL_SIZE))
         {
             return &handle->labels[bucket][i];
         }

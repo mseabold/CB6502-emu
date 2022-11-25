@@ -14,7 +14,6 @@
 #include "mem.h"
 #include "sdcard.h"
 #include "at28c256.h"
-#include "dbgcli.h"
 
 #include "bitbang_spi.h"
 
@@ -60,11 +59,6 @@ static uint8_t memory_read(uint16_t address)
         value = acia_read(acia, (uint8_t)(address - ACIA_BASE));
     }
 
-#ifdef STEP
-    printf("0x%04x 0x%02x R\n", address, value);
-#endif
-    //printf("0x%04x 0x%02x R\n", address, value);
-
     return value;
 }
 
@@ -86,11 +80,6 @@ static void memory_write(uint16_t address, uint8_t value)
     {
         at28c256_write(rom, address-ROM_BASE, value);
     }
-
-#ifdef STEP
-    printf("0x%04x 0x%02x W\n", address, value);
-#endif
-    //printf("0x%04x 0x%02x W\n", address, value);
 }
 
 static mem_space_t mem_space = {
@@ -102,47 +91,18 @@ static void cpu_tick_callback(uint32_t ticks)
 {
 }
 
-int main(int argc, char *argv[])
+bool cb6502_init(const char *rom_file, const char *acia_socket)
 {
     int rom_fd;
     int read_result;
     unsigned int total_read;
 
-    char *labels_file = NULL;
-    char *acia_socket = (char *)ACIA_DEFAULT_SOCKNAME;
-    int c;
-
-    dbgcli_config_t dbg_cfg;
-
-    while((c = getopt(argc, argv, "l:s:")) != -1)
-    {
-        switch(c)
-        {
-            case 'l':
-                labels_file = optarg;
-                break;
-            case 's':
-                acia_socket = optarg;
-                break;
-            case '?':
-                return 1;
-            default:
-                return 1;
-        }
-    }
-
-    if(optind >= argc)
-    {
-        fprintf(stderr, "Usage: %s [-l LABEL_FILE] [-s ACIA_SOCKET_PATH ] rom_file\n", argv[0]);
-        return 1;
-    }
-
-    rom_fd = open(argv[optind], O_RDONLY);
+    rom_fd = open(rom_file, O_RDONLY);
 
     if(rom_fd < 0)
     {
         fprintf(stderr, "Unable to open ROM file: %s\n", strerror(errno));
-        return 1;
+        return false;
     }
 
     total_read = 0;
@@ -161,7 +121,7 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "Unable to read from ROM file: %s\n", strerror(errno));
         close(rom_fd);
-        return 1;
+        return false;
     }
 
     if(total_read != ROM_SIZE)
@@ -173,47 +133,45 @@ int main(int argc, char *argv[])
     if(sys == NULL)
     {
         fprintf(stderr, "feck\n");
-        return 1;
+        return false;
     }
-    acia = acia_init(acia_socket, sys);
+    acia = acia_init((char *)acia_socket, sys);
     if(acia == NULL)
     {
         fprintf(stderr, "Unable to initialize ACIA\n");
-        return 1;
+        return false;
     }
 
     via = via_init();
     if(via == NULL)
     {
         fprintf(stderr, "Unable to unitialize VIA\n");
-        return 1;
+        return false;
     }
 
     rom = at28c256_init(sys, 0);
     if(rom == AT28C256_INVALID_HANDLE)
     {
         fprintf(stderr, "Unable to initialize AT28C256\n");
-        return 1;
+        return false;
     }
     at28c256_load_image(rom, ROM_SIZE, ROM_DATA, 0);
 
     via_register_protocol(via, bitbang_spi_get_prot(), NULL);
     printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
-    //printf("sdcard init %s\n", sdcard_init("/home/matt/git/CB6502/sddump.bin") ? "success" : "failure");
+
     cpu_init(sys, true);
     cpu_set_tick_callback(cpu_tick_callback);
 
-    dbg_cfg.valid_flags = 0;
+    return true;
+}
 
-    if(labels_file != NULL)
-    {
-        dbg_cfg.valid_flags |= DBGCLI_CONFIG_FLAG_LABEL_FILE_VALID;
-        dbg_cfg.label_file = labels_file;
-    }
+sys_cxt_t cb6502_get_sys(void)
+{
+    return sys;
+}
 
-    dbgcli_run(sys, &dbg_cfg);
-
+void cb6502_destroy(void)
+{
     acia_cleanup(acia);
-
-    return 0;
 }

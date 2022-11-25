@@ -64,9 +64,18 @@ uint8_t cpu_step(void);
  * Disassemble the current opcode into the supplied string buffer.
  *
  * @param buf_len   The length of the supplied buffer.
- * @param buf       Buffer to hold the disassembly string.
+ * @param buffer    Buffer to hold the disassembly string.
  */
-void cpu_disassemble(size_t bufLen, char *buf);
+void cpu_disassemble(size_t buf_len, char *buffer);
+
+/**
+ * Disassemble the the opcode at the specified address into the supplied string buffer.
+ *
+ * @param addr      Address of the opcode to disassemble
+ * @param buf_len   The length of the supplied buffer.
+ * @param buffer    Buffer to hold the disassembly string.
+ */
+void cpu_disassemble_at(uint16_t addr, size_t buf_len, char *buffer);
 
 /**
  * Get the interger value of a single CPU register.
@@ -90,6 +99,15 @@ void cpu_get_regs(cpu_regs_t *regs);
  * @return The length of the opcode.
  */
 uint8_t cpu_get_op_len(void);
+
+/**
+ * Get the length in bytes of the specified opcode + parameters.
+ *
+ * @param addr Address of the opcode.
+ *
+ * @return The length of the opcode.
+ */
+uint8_t cpu_get_op_len_at(uint16_t addr);
 
 /**
  * Checks whether the current opcode is a jsr (useful for debugger to step over

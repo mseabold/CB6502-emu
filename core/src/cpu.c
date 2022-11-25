@@ -77,26 +77,6 @@
             clearoverflow(); \
     } while(0)
 
-typedef enum {
-    IMP,
-    ACC,
-    IMM,
-    ZP,
-    ZPX,
-    ZPY,
-    REL,
-    ABSO,
-    ABSX,
-    ABSY,
-    IND,
-    INDX,
-    INDY,
-    INDZ,
-    ABIN,
-    ZPREL,
-    NUM_ADDR_MODES
-} addr_mode_t;
-
 //6502 CPU registers
 uint16_t pc;
 uint8_t sp, a, x, y, status;
@@ -148,7 +128,27 @@ void cpu_reset()
 }
 
 
-static addr_mode_t addrtable[256];
+typedef enum {
+    IMP,
+    ACC,
+    IMM,
+    ZP,
+    ZPX,
+    ZPY,
+    REL,
+    ABSO,
+    ABSX,
+    ABSY,
+    IND,
+    INDX,
+    INDY,
+    INDZ,
+    ABIN,
+    ZPREL,
+    NUM_ADDR_MODES
+} cpu_addr_mode_t;
+
+const cpu_addr_mode_t addrtable[256];
 static void (*optable[256])();
 uint8_t penaltyop, penaltyaddr;
 
@@ -1071,7 +1071,7 @@ static uint8_t addr_lengths[NUM_ADDR_MODES] =
     3
 };
 
-static addr_mode_t addrtable[256] =
+const cpu_addr_mode_t addrtable[256] =
 {
 /*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |       */
 /* 0 */     IMP, INDX,  IMP, INDX,   ZP,   ZP,   ZP,    ZP,  IMP,  IMM,  ACC,  IMM, ABSO, ABSO, ABSO, ZPREL, /* 0 */
@@ -1133,7 +1133,7 @@ static const uint32_t ticktable[256] =
 /* F */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    4,    7,    4,    4,    7,    5   /* F */
 };
 
-static const char *mnemonics[256] =
+const char *mnemonics[256] =
 {
 /*         | 0    |  1    |  2    |  3    |  4    |  5    |  6    |  7    |  8    |  9    |  A    |  B    |  C    |  D    |  E    |  F  |     */
 /* 0 */      "BRK",  "ORA",  "NOP",  "NOP",  "TSB",  "ORA",  "ASL", "RMB0",  "PHP",  "ORA",  "ASL",  "NOP",  "TSB",  "ORA",  "ASL",  "SLO", /* 0 */
@@ -1226,59 +1226,64 @@ uint8_t cpu_step()
 
 void cpu_disassemble(size_t bufLen, char *buffer)
 {
+    cpu_disassemble_at(pc, bufLen, buffer);
+}
+
+void cpu_disassemble_at(uint16_t addr, size_t buf_len, char *buffer)
+{
     const char *mn;
-    addr_mode_t addr_mode;
-    uint8_t opcode = sys_read_mem(syscxt, pc);
+    cpu_addr_mode_t addr_mode;
+    uint8_t opcode = sys_read_mem(syscxt, addr);
     size_t len;
     mn = mnemonics[opcode];
     addr_mode = addrtable[opcode];
-    snprintf(buffer, bufLen, "0x%04x: %s", pc, mn);
+    snprintf(buffer, buf_len, "0x%04x: %s", addr, mn);
 
     len = strlen(buffer);
 
     buffer += len;
-    bufLen -= len;
+    buf_len -= len;
 
-    if(bufLen == 0)
+    if(buf_len == 0)
         return;
 
     switch(addr_mode)
     {
         case IMM:
-            snprintf(buffer, bufLen, " #$%02x", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " #$%02x", sys_read_mem(syscxt, addr+1));
             break;
         case ZP:
-            snprintf(buffer, bufLen, " $00%02x", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $00%02x", sys_read_mem(syscxt, addr+1));
             break;
         case ZPX:
-            snprintf(buffer, bufLen, " $00%02x,X", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $00%02x,X", sys_read_mem(syscxt, addr+1));
             break;
         case ZPY:
-            snprintf(buffer, bufLen, " $00%02x,Y", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $00%02x,Y", sys_read_mem(syscxt, addr+1));
             break;
         case REL:
-            snprintf(buffer, bufLen, " $%02x", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $%02x", sys_read_mem(syscxt, addr+1));
             break;
         case ABSO:
-            snprintf(buffer, bufLen, " $%02x%02x", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $%02x%02x", sys_read_mem(syscxt, addr+2), sys_read_mem(syscxt, addr+1));
             break;
         case ABSX:
-            snprintf(buffer, bufLen, " $%02x%02x,X", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $%02x%02x,X", sys_read_mem(syscxt, addr+2), sys_read_mem(syscxt, addr+1));
             break;
         case ABSY:
-            snprintf(buffer, bufLen, " $%02x%02x,Y", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " $%02x%02x,Y", sys_read_mem(syscxt, addr+2), sys_read_mem(syscxt, addr+1));
             break;
         case IND:
-            snprintf(buffer, bufLen, " ($%02x%02x)", sys_read_mem(syscxt, pc+2), sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " ($%02x%02x)", sys_read_mem(syscxt, addr+2), sys_read_mem(syscxt, addr+1));
             break;
         case INDX:
-            snprintf(buffer, bufLen, " ($00%02x,X)", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " ($00%02x,X)", sys_read_mem(syscxt, addr+1));
             break;
         case INDY:
-            snprintf(buffer, bufLen, " ($00%02x,Y)", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " ($00%02x,Y)", sys_read_mem(syscxt, addr+1));
             break;
         case INDZ:
-            snprintf(buffer, bufLen, " ($00%02x)", sys_read_mem(syscxt, pc+1));
+            snprintf(buffer, buf_len, " ($00%02x)", sys_read_mem(syscxt, addr+1));
             break;
         default:
             break;
@@ -1332,7 +1337,12 @@ void cpu_get_regs(cpu_regs_t *regs)
 
 uint8_t cpu_get_op_len(void)
 {
-    uint8_t opcode = sys_read_mem(syscxt, pc);
+    return cpu_get_op_len_at(pc);
+}
+
+uint8_t cpu_get_op_len_at(uint16_t addr)
+{
+    uint8_t opcode = sys_read_mem(syscxt, addr);
     return addr_lengths[addrtable[opcode]];
 }
 

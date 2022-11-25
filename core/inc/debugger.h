@@ -89,7 +89,8 @@ bool debug_set_breakpoint_addr(debug_t handle, debug_breakpoint_t *breakpoint_ha
  * @param[out] breakpoint_handle On success, set to the handle of the created breakpoint.
  * @param[in] label The label to set a breakpoint on.
  *
- * @return true of the breakpoint was sucessfully set.
+ * @retval true if the breakpoint was set successfully
+ * @retval false if the breakpoint could not be set
  */
 bool debug_set_breakpoint_label(debug_t handle, debug_breakpoint_t *breakpoint_handle, const char *label);
 
