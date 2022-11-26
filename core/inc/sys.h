@@ -58,12 +58,11 @@ typedef struct mem_space_s
  * perform address decoding and supply the read/writes to the proper components based on
  * the address space for the particular system.
  *
- * @param[in] read_hlr  The memory bus read handler to be provided by the platform
- * @param[in] write_hlr The memory bus write handler to be provided by the platform
+ * @param[in] mem_space The memory space handlers for the initializing platform
  *
  * @return A sys context to be used for future calls, or NULL on failure to initialize.
  */
-sys_cxt_t sys_init(mem_read_t read_hlr, mem_write_t write_hlr);
+sys_cxt_t sys_init(const mem_space_t *mem_space);
 
 /**
  * Destroys a previously created global system context.
@@ -118,6 +117,19 @@ uint8_t sys_read_mem(sys_cxt_t cxt, uint16_t addr);
  * @param[in] val The value to write to the specified address
  */
 void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val);
+
+/**
+ * Peek the status of a memory address on the system bus without
+ * executing an actual read transaction. This means things such as I/O devices
+ * can return register values for debugging without modifying the internal state
+ * if the emulation implements a peek.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] addr The address to read
+ *
+ * @return The value associated with the address
+ */
+uint8_t sys_peek_mem(sys_cxt_t cxt, uint16_t addr);
 
 /**
  * Set the tickrate (ns per CPU/Bus tick) for the system.

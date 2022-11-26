@@ -4,8 +4,7 @@
 
 struct sys_cxt_s
 {
-    mem_read_t read_hlr;
-    mem_write_t write_hlr;
+    mem_space_t mem_space;
     uint32_t nIrqVotes;
     uint32_t nNmiVotes;
     bool nmiPend;
@@ -14,11 +13,11 @@ struct sys_cxt_s
 
 #define NUM_BALLOTS 32
 
-sys_cxt_t sys_init(mem_read_t read_hlr, mem_write_t write_hlr)
+sys_cxt_t sys_init(const mem_space_t *mem_space)
 {
     sys_cxt_t cxt;
 
-    if(read_hlr == NULL || write_hlr == NULL)
+    if(mem_space == NULL || mem_space->write == NULL || mem_space->read == NULL || mem_space->peek == NULL)
         return NULL;
 
     cxt = malloc(sizeof(struct sys_cxt_s));
@@ -27,8 +26,7 @@ sys_cxt_t sys_init(mem_read_t read_hlr, mem_write_t write_hlr)
         return NULL;
 
     memset(cxt, 0, sizeof(struct sys_cxt_s));
-    cxt->read_hlr = read_hlr;
-    cxt->write_hlr = write_hlr;
+    cxt->mem_space = *mem_space;
     cxt->tickrate = DEFAULT_TICKRATE_NS;
 
     return (sys_cxt_t)cxt;
@@ -89,7 +87,7 @@ uint8_t sys_read_mem(sys_cxt_t cxt, uint16_t addr)
     if(cxt == NULL)
         return 0xff;
 
-    return cxt->read_hlr(addr);
+    return cxt->mem_space.read(addr);
 }
 
 void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val)
@@ -97,7 +95,15 @@ void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val)
     if(cxt == NULL)
         return;
 
-    cxt->write_hlr(addr, val);
+    cxt->mem_space.write(addr, val);
+}
+
+uint8_t sys_peek_mem(sys_cxt_t cxt, uint16_t addr)
+{
+    if(cxt == NULL)
+        return 0xff;
+
+    return cxt->mem_space.peek(addr);
 }
 
 void sys_set_tickrate(sys_cxt_t cxt, uint32_t tickrate)

@@ -60,11 +60,16 @@ uint8_t test_mem_read(uint16_t addr)
     return val;
 }
 
-
+static const mem_space_t mem_space =
+{
+    test_mem_write,
+    test_mem_read,
+    test_mem_read
+};
 
 void test_cpu_reset_mem(void)
 {
-    sys_cxt_t cxt = sys_init(test_mem_read, test_mem_write);
+    sys_cxt_t cxt = sys_init(&mem_space);
 
     TEST_ASSERT_NOT_NULL(cxt);
 
@@ -80,7 +85,7 @@ void test_cpu_reset_mem(void)
 
 void test_cpu_irq(void)
 {
-    sys_cxt_t cxt = sys_init(test_mem_read, test_mem_write);
+    sys_cxt_t cxt = sys_init(&mem_space);
 
     TEST_ASSERT_NOT_NULL(cxt);
 

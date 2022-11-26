@@ -81,7 +81,7 @@ static void memory_write(uint16_t address, uint8_t value)
     }
 }
 
-static mem_space_t mem_space = {
+static const mem_space_t mem_space = {
     memory_write,
     memory_read,
     memory_read //TODO separate peek handler
@@ -129,7 +129,7 @@ bool cb6502_init(const char *rom_file, const char *acia_socket)
         fprintf(stderr, "WARNING: ROM file does not fill up ROM. Some of ROM may be unitialized/0.\n");
     }
 
-    sys = sys_init(memory_read, memory_write);
+    sys = sys_init(&mem_space);
     if(sys == NULL)
     {
         fprintf(stderr, "feck\n");

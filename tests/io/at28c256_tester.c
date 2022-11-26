@@ -18,9 +18,16 @@ void write_hlr(uint16_t addr, uint8_t val)
 {
 }
 
+static const mem_space_t mem_space =
+{
+    write_hlr,
+    read_hlr,
+    read_hlr
+};
+
 void setUp(void)
 {
-    sys = sys_init(read_hlr, write_hlr);
+    sys = sys_init(&mem_space);
     iut = at28c256_init(sys, 0);
 }
 
