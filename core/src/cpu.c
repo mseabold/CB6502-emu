@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <string.h>
 #include "cpu.h"
-#include "mem.h"
 #include "sys.h"
 
 #define FLAG_CARRY     0x01

@@ -11,7 +11,6 @@
 #include "cpu.h"
 #include "acia.h"
 #include "via.h"
-#include "mem.h"
 #include "sdcard.h"
 #include "at28c256.h"
 
@@ -84,7 +83,8 @@ static void memory_write(uint16_t address, uint8_t value)
 
 static mem_space_t mem_space = {
     memory_write,
-    memory_read
+    memory_read,
+    memory_read //TODO separate peek handler
 };
 
 static void cpu_tick_callback(uint32_t ticks)

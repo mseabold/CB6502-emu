@@ -1,7 +1,6 @@
 #ifndef __SYS_H__
 #define __SYS_H__
 
-#include "mem.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -9,6 +8,48 @@ typedef struct sys_cxt_s *sys_cxt_t;
 #define SYS_CXT_INVALID NULL
 
 #define DEFAULT_TICKRATE_NS 1000
+
+/**
+ * Memory write callback.
+ *
+ * @param addr[in] Address to write
+ * @param value[in] Value to write to the specified address
+ */
+typedef void (*mem_write_t)(uint16_t addr, uint8_t value);
+
+/**
+ * Memory read callback
+ *
+ * @param addr[in] Address to read
+ *
+ * @return Value read at specified address
+ */
+typedef uint8_t (*mem_read_t)(uint16_t addr);
+
+typedef struct mem_space_s
+{
+    /**
+     * Global memory write callback supplied by the platform. This function should
+     * perform the correct address decoding and route the write to the correct module
+     * based on the platform address space.
+     */
+    mem_write_t write;
+
+    /**
+     * Global memory read callback supplied by the platform. This function should
+     * perform the correct address decoding and route the read to the correct module
+     * based on the platform address space.
+     */
+    mem_read_t read;
+
+    /**
+     * This callback is used similarly to the global read callback with one key difference:
+     * the read is not actually being executed by the CPU on the bus. This is used by debugging
+     * or monitoring interfaces to peek the status of memory without potentially executing reads
+     * that could modify the state of I/O devices which change on read transactions.
+     */
+    mem_read_t peek;
+} mem_space_t;
 
 /**
  * Initialized the a global emulator sys context. This context holds common
