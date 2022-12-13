@@ -16,7 +16,8 @@ const mem_expect_t test_cpu_reset_mem_expect[] =
 {
     {true, 0xfffc, 0x34},
     {true, 0xfffd, 0x12},
-    {true, 0x1234, 0xea}
+    {true, 0x1234, 0xea},
+    {true, 0x1235, 0xea},
 };
 
 const mem_expect_t test_cpu_irq_exepect[] =
@@ -24,8 +25,13 @@ const mem_expect_t test_cpu_irq_exepect[] =
     {true, 0xfffc, 0x34},
     {true, 0xfffd, 0x12},
     {true, 0x1234, 0x58},
+    {true, 0x1235, 0xea},
+    {true, 0x1235, 0xea},
+    {true, 0x1236, 0xea},
+    {true, 0x1236, 0xea},
+    {true, 0x1236, 0xea},
     {false, 0x01fd, 0x12},
-    {false, 0x01fc, 0x35},
+    {false, 0x01fc, 0x36},
     {false, 0x01fb, 0x20},
     {true, 0xfffe, 0x78},
     {true, 0xffff, 0x56},
@@ -74,13 +80,13 @@ void test_cpu_reset_mem(void)
     TEST_ASSERT_NOT_NULL(cxt);
 
     test_mem_calls = test_cpu_reset_mem_expect;
-    num_test_mem_calls = 3;
+    num_test_mem_calls = 4;
     test_mem_idx = 0;
 
     cpu_init(cxt, true);
     cpu_step();
 
-    TEST_ASSERT_EQUAL_UINT(test_mem_idx, 3);
+    TEST_ASSERT_EQUAL_UINT(test_mem_idx, 4);
 }
 
 void test_cpu_irq(void)
@@ -90,12 +96,14 @@ void test_cpu_irq(void)
     TEST_ASSERT_NOT_NULL(cxt);
 
     test_mem_calls = test_cpu_irq_exepect;
-    num_test_mem_calls = 8;
+    num_test_mem_calls = sizeof(test_cpu_irq_exepect)/sizeof(mem_expect_t);
     test_mem_idx = 0;
 
     cpu_init(cxt, true);
     cpu_step();
+    cpu_tick();
     sys_vote_interrupt(cxt, false, true);
+    cpu_tick();
     TEST_ASSERT(sys_check_interrupt(cxt, false));
     printf("step\n");
     cpu_step();

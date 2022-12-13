@@ -121,3 +121,8 @@ bool cpu_is_subroutine(void);
  * glue in timing to peripherals regardless of what process is driving the CPU.
  */
 void cpu_set_tick_callback(cpu_tick_cb_t callback);
+
+/**
+ * Tick a single clock cycle in the CPU.
+ */
+void cpu_tick(void);

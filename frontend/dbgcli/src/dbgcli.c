@@ -164,7 +164,7 @@ static void cmd_examine(uint32_t num_params, cmd_param_t *params)
             printf("%04x:", addr + 16*(i/16));
 
         ++col;
-        printf(" %02x", sys_read_mem(cxt.system, addr+i));
+        printf(" %02x", sys_peek_mem(cxt.system, addr+i));
 
         if(col == 16)
         {
