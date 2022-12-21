@@ -12,16 +12,11 @@ add_executable(cbdbg cbdbg.c)
 
 target_link_libraries(cbdbg dbgcli cb6502)
 
-find_package(Curses REQUIRED)
-
 add_executable(cbconsole cbconsole.c)
-
-target_include_directories(cbconsole
-     PRIVATE
-        ${CURSES_INCLUDE_DIR})
 
 target_link_libraries(cbconsole
     PRIVATE
         cb6502
-        ${CURSES_LIBRARY})
+        fe_ncurses
+)
 

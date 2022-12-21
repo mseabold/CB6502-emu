@@ -1,15 +1,29 @@
+#include <curses.h>
 #include <stdio.h>
-#include <ncurses.h>
 
 #include "cpu.h"
 #include "acia.h"
 #include "cb6502.h"
+#include "debugger.h"
+#include "debugwin.h"
+#include "log.h"
+#include "logwin.h"
 
+#define CHAR_QUIT 'q'
+
+extern WINDOW *linedebugwin;
 int main(int argc, char *argv[])
 {
     int i;
     char disbuf[128];
     uint16_t pc;
+    debugwin_t dbgwin;
+    WINDOW *win;
+    WINDOW *logwin;
+    debug_t debugger;
+    bool done;
+    char c;
+    int dbgwidth;
 
     if(argc < 2)
     {
@@ -23,25 +37,44 @@ int main(int argc, char *argv[])
     initscr();
     cbreak();
     noecho();
+    curs_set(0);
 
-    pc =  cpu_get_reg(REG_PC);
+    debugger = debug_init(cb6502_get_sys());
 
-    for(i=0;i<LINES;++i)
+    dbgwidth = COLS/2;
+
+    logwin = newwin(LINES, COLS-dbgwidth, 0, dbgwidth);
+#if 1
+    curses_logwin_init(logwin);
+    log_set_handler(curses_logwin_print);
+#else
+    linedebugwin = logwin;
+#endif
+    log_set_level(lDEBUG);
+    refresh();
+    win = newwin(LINES, dbgwidth, 0, 0);
+    refresh();
+    dbgwin = debugwin_create(win, debugger, LINES, COLS);
+
+    done = false;
+
+    while(!done)
     {
-        cpu_disassemble_at(pc, sizeof(disbuf), disbuf);
-        printw("%s\n", disbuf);
-        pc += cpu_get_op_len_at(pc);
+        c = getch();
+
+        if(c != CHAR_QUIT)
+        {
+            debugwin_processchar(dbgwin, c);
+        }
+        else
+        {
+            done = true;
+        }
     }
 
-    mvchgat(3,0,-1,A_REVERSE,0,NULL);
-
-    refresh();
-    getch();
-    mvchgat(3,0,-1,0,0,NULL);
-    mvchgat(4,0,-1,A_REVERSE,0,NULL);
-    getch();
     endwin();
 
+    debugwin_destroy(dbgwin);
     cb6502_destroy();
 
     return 0;

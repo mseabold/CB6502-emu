@@ -158,7 +158,8 @@ bool cb6502_init(const char *rom_file, const char *acia_socket)
     at28c256_load_image(rom, ROM_SIZE, ROM_DATA, 0);
 
     via_register_protocol(via, bitbang_spi_get_prot(), NULL);
-    printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
+    sdcard_init("/mnt/sdcard_fs.bin");
+    //printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
 
     cpu_init(sys, true);
     cpu_set_tick_callback(cpu_tick_callback);

@@ -5,7 +5,9 @@ add_library(cbemu STATIC
     src/cpu.c
     src/acia.c
     src/via.c
-    src/debugger.c)
+    src/debugger.c
+    src/log.c
+)
 
 target_include_directories(cbemu
     PUBLIC
@@ -19,3 +21,12 @@ endif()
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(cbemu PRIVATE Threads::Threads)
+
+add_library(console_log STATIC
+    src/console_log.c
+)
+
+target_include_directories(console_log
+    PUBLIC
+        inc
+)
