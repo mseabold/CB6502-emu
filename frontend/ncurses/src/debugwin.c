@@ -217,6 +217,10 @@ void debugwin_processchar(debugwin_t window, char input)
             debug_step(window->debugger);
             refresh_state(window);
             break;
+        case 'f':
+            debug_finish(window->debugger, &bphit);
+            refresh_state(window);
+            break;
         default:
             break;
     }
