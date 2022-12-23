@@ -42,6 +42,7 @@ static void cmd_breakpoint(uint32_t num_params, cmd_param_t *params);
 static void cmd_registers(uint32_t num_params, cmd_param_t *params);
 static void cmd_quit(uint32_t num_params, cmd_param_t *params);
 static void cmd_examine(uint32_t num_params, cmd_param_t *params);
+static void cmd_finish(uint32_t num_params, cmd_param_t *params);
 
 static const dbg_cmd_t dbg_cmd_list[] = {
     { "continue", 'c', cmd_continue },
@@ -51,6 +52,7 @@ static const dbg_cmd_t dbg_cmd_list[] = {
     { "breakpoint", 'b', cmd_breakpoint },
     { "quit", 'q', cmd_quit },
     { "examine", 'x', cmd_examine },
+    { "finish", 'f', cmd_finish },
 };
 
 static void cmd_continue(uint32_t num_params, cmd_param_t *params)
@@ -70,6 +72,19 @@ static void cmd_next(uint32_t num_params, cmd_param_t *params)
     debug_breakpoint_t bp;
 
     if(debug_next(cxt.debugger, &bp))
+    {
+        if(bp == BREAKPOINT_HANDLE_SW_REQUEST)
+            printf("\nSW Break requested\n");
+        else
+            printf("Breakpoint #%u hit\n", bp);
+    }
+}
+
+static void cmd_finish(uint32_t num_params, cmd_param_t *params)
+{
+    debug_breakpoint_t bp;
+
+    if(debug_finish(cxt.debugger, &bp))
     {
         if(bp == BREAKPOINT_HANDLE_SW_REQUEST)
             printf("\nSW Break requested\n");

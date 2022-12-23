@@ -9,6 +9,7 @@
 
 #include "debugger.h"
 #include "cpu.h"
+#include "sys.h"
 
 #define MAX_BREAKPOINTS 8
 #define BREAKPOINT_VALID_MASK 0x80000000
@@ -342,4 +343,41 @@ void debug_break(debug_t handle)
 {
     if(handle != NULL)
         handle->sw_break = true;
+}
+
+bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
+{
+    uint8_t opcode;
+    bool is_ret = false;
+    uint16_t pc;
+
+    if(handle == NULL)
+        return false;
+
+    while(!is_ret && !handle->sw_break)
+    {
+        pc = cpu_get_reg(REG_PC);
+
+        if(dbg_eval_breakpoints(handle, pc, breakpoint_hit))
+        {
+            return true;
+        }
+
+        opcode = sys_peek_mem(handle->syscxt, cpu_get_reg(REG_PC));
+
+        if(opcode == 0x40 || opcode == 0x60)
+        {
+            is_ret = true;
+        }
+
+        cpu_step();
+    }
+
+    if(handle->sw_break && breakpoint_hit != NULL)
+    {
+        *breakpoint_hit = BREAKPOINT_HANDLE_SW_REQUEST;
+        return true;
+    }
+
+    return false;
 }

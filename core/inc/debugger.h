@@ -149,4 +149,14 @@ void debug_run(debug_t handle, debug_breakpoint_t *breakpoint_hit);
  */
 void debug_break(debug_t handle);
 
+/**
+ * Execute until return for current subroutine.
+ *
+ * @param[in] handle The debugger handle.
+ * @param[out] breakpoint_hit If this function returns @c true, this will be populated with the handle of the breakpoint that was hit.
+ *
+ * @return @c true if the debugger successfully executed until the next opcode in memory. @c false if it is returning early due to a breakpoint.
+ */
+bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit);
+
 #endif /* end of include guard: __DEBUGGER_H__ */
