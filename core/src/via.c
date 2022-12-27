@@ -80,7 +80,6 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             break;
         case DDRB:
             cxt->dirmask_b = val;
-            printf("dirmask write: %02x\n", val);
             break;
         case DATAB:
             cxt->data_b = val;

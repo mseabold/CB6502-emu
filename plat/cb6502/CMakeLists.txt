@@ -18,5 +18,6 @@ target_link_libraries(cbconsole
     PRIVATE
         cb6502
         fe_ncurses
+        syslog_log
 )
 

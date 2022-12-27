@@ -183,6 +183,7 @@ debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger)
     }
 
 
+    handle->curhead = 0;
     handle->curswin = curswindow;
     handle->debugger = debugger;
     handle->height = height;

@@ -148,7 +148,6 @@ void *terminal_thread(void *p)
         {
             if(fds[1].revents == POLLIN)
             {
-                printf("shutdown\n");
                 shutdown = true;
                 continue;
             }
@@ -310,7 +309,6 @@ acia_t acia_init(char *socketpath, sys_cxt_t system_cxt)
         return false;
     }
 
-    printf("ACIA listening on: %s\n", socketpath);
 
     cxt->rx_avail = ACIA_RX_BUF_SIZE;
     cxt->syscxt = system_cxt;

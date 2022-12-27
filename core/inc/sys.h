@@ -5,6 +5,8 @@
 #include <stdbool.h>
 
 typedef struct sys_cxt_s *sys_cxt_t;
+typedef void *sys_trace_cb_t;
+
 #define SYS_CXT_INVALID NULL
 
 #define DEFAULT_TICKRATE_NS 1000
@@ -25,6 +27,17 @@ typedef void (*mem_write_t)(uint16_t addr, uint8_t value);
  * @return Value read at specified address
  */
 typedef uint8_t (*mem_read_t)(uint16_t addr);
+
+/**
+ * Memory trace debug callback. This can be registered to trace memory operations without actually
+ * controlling the memory bus.
+ *
+ * @param addr[in]  Address for the memory option.
+ * @param value[in] Data value that was written or read.
+ * @param write[in] Indicates whether the operation is a read or write operation.
+ * @param param[in] User-supplied param given when the callback was registered
+ */
+typedef void (*mem_trace_t)(uint16_t addr, uint8_t value, bool write, void *param);
 
 typedef struct mem_space_s
 {
@@ -148,5 +161,25 @@ void sys_set_tickrate(sys_cxt_t cxt, uint32_t tickrate);
  * @return The number of elapsed ns (rounded down).
  */
 uint64_t sys_convert_ticks_to_ns(sys_cxt_t cxt, uint32_t ticks);
+
+/**
+ * Registers a memory trace callback. This allows the caller to watch memory operations
+ * that are performed by the system.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] cb  The memory trace callback to register
+ * @param[in] param User-supplied parameter that will be supplied to the callback when it is called.
+ *
+ * @return A handle referencing the newly registered callback or NULL on error.
+ */
+sys_trace_cb_t sys_register_mem_trace_callback(sys_cxt_t cxt, mem_trace_t cb, void *param);
+
+/**
+ * Un-registers a previously registered memory trace callback.
+ *
+ * @param[in] cxt The sys context
+ * @param[in] cb The previously registered callback
+ */
+void sys_un_register_mem_trace_callback(sys_cxt_t cxt, sys_trace_cb_t cb);
 
 #endif

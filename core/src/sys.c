@@ -2,6 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct mem_trace_entry_s
+{
+    mem_trace_t cb;
+    void *param;
+    struct mem_trace_entry_s *next;
+} mem_trace_entry_t;
+
 struct sys_cxt_s
 {
     mem_space_t mem_space;
@@ -9,6 +16,11 @@ struct sys_cxt_s
     uint32_t nNmiVotes;
     bool nmiPend;
     uint32_t tickrate;
+
+    mem_trace_entry_t dummy_head;
+
+    mem_trace_entry_t *mem_trace_head;
+    mem_trace_entry_t *mem_trace_tail;
 };
 
 #define NUM_BALLOTS 32
@@ -28,6 +40,7 @@ sys_cxt_t sys_init(const mem_space_t *mem_space)
     memset(cxt, 0, sizeof(struct sys_cxt_s));
     cxt->mem_space = *mem_space;
     cxt->tickrate = DEFAULT_TICKRATE_NS;
+    cxt->mem_trace_head = cxt->mem_trace_tail = &cxt->dummy_head;
 
     return (sys_cxt_t)cxt;
 }
@@ -120,4 +133,54 @@ uint64_t sys_convert_ticks_to_ns(sys_cxt_t cxt, uint32_t ticks)
         return 0;
 
     return (uint64_t)ticks * (uint64_t)cxt->tickrate;
+}
+
+sys_trace_cb_t sys_register_mem_trace_callback(sys_cxt_t cxt, mem_trace_t cb, void *param)
+{
+    mem_trace_entry_t *new;
+
+    if(cxt == NULL)
+        return false;
+
+    new = malloc(sizeof(mem_trace_entry_t));
+
+    if(new == NULL)
+        return NULL;
+
+    memset(new, 0, sizeof(mem_trace_entry_t));
+    new->cb = cb;
+    new->param = param;
+
+    cxt->mem_trace_tail->next = new;
+    cxt->mem_trace_tail = new;
+
+    return new;
+}
+
+void sys_un_register_mem_trace_callback(sys_cxt_t cxt, sys_trace_cb_t cb)
+{
+    mem_trace_entry_t *cur;
+    mem_trace_entry_t *prev;
+
+    if(cxt == NULL || cb == NULL)
+        return;
+
+    cur = cxt->mem_trace_head;
+    prev = NULL;
+
+    while(cur != NULL && cb != cur)
+    {
+        prev = cur;
+        cur = cur->next;
+    }
+
+    if(cur == NULL)
+        return;
+
+    prev->next = cur->next;
+
+    if(cxt->mem_trace_tail == cur)
+        cxt->mem_trace_tail = prev;
+
+    free(cur);
 }
