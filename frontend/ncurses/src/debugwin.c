@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bpwin.h"
 #include "debugger.h"
 #include "debugwin.h"
 #include "cpu.h"
@@ -25,6 +26,7 @@ struct debugwin_s
     int height;
     int width;
     debug_t debugger;
+    bpwin_t bpwin;
 
     line_info_t *line_info;
     unsigned int curhead;
@@ -154,12 +156,16 @@ static void refresh_state(debugwin_t handle)
     }
 }
 
-debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger, int height, int width)
+debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger)
 {
     debugwin_t handle;
     int index;
     uint16_t pc;
     char disbuf[128];
+
+    int height,width;
+
+    getmaxyx(curswindow, height, width);
 
     handle = (debugwin_t)malloc(sizeof(struct debugwin_s));
 
@@ -206,11 +212,21 @@ void debugwin_processchar(debugwin_t window, char input)
 {
     debug_breakpoint_t bphit;
     int nextline;
+
+    if(window->bpwin)
+        bpwin_clear_active_bp(window->bpwin);
+
     switch(input)
     {
         case 'n':
             /* Scroll if we reach the bottom 1/5 of the screen. */
-            debug_next(window->debugger, &bphit);
+            if(debug_next(window->debugger, &bphit))
+            {
+                if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+                {
+                    bpwin_set_active_bp(window->bpwin, bphit);
+                }
+            }
             refresh_state(window);
             break;
         case 's':
@@ -218,10 +234,31 @@ void debugwin_processchar(debugwin_t window, char input)
             refresh_state(window);
             break;
         case 'f':
-            debug_finish(window->debugger, &bphit);
+            if(debug_finish(window->debugger, &bphit))
+            {
+                if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+                {
+                    bpwin_set_active_bp(window->bpwin, bphit);
+                }
+            }
+            refresh_state(window);
+            break;
+        case 'c':
+            debug_run(window->debugger, &bphit);
+
+            if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+            {
+                bpwin_set_active_bp(window->bpwin, bphit);
+            }
+
             refresh_state(window);
             break;
         default:
             break;
     }
+}
+
+void debugwin_set_bpwin(debugwin_t window, bpwin_t breakpoint_window)
+{
+    window->bpwin = breakpoint_window;
 }

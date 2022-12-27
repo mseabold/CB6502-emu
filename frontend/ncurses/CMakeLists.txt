@@ -3,6 +3,8 @@ find_package(Curses REQUIRED)
 add_library(fe_ncurses STATIC
     src/debugwin.c
     src/logwin.c
+    src/bpwin.c
+    src/regwin.c
 )
 
 target_include_directories(fe_ncurses

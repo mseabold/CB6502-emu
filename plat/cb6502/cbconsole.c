@@ -1,5 +1,6 @@
 #include <curses.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "cpu.h"
 #include "acia.h"
@@ -8,10 +9,33 @@
 #include "debugwin.h"
 #include "log.h"
 #include "logwin.h"
+#include "bpwin.h"
+#include "regwin.h"
 
 #define CHAR_QUIT 'q'
 
 extern WINDOW *linedebugwin;
+
+static void draw_box(int y, int x, int height, int width, char *label, bool draw_bottom)
+{
+    mvaddch(y,x,'+');
+    mvaddch(y,x+width-1,'+');
+    mvvline(y+1,x,'|',height-2);
+    mvvline(y+1,x+width-1,'|',height-2);
+    mvhline(y,x+1,'=',width-2);
+
+    if(draw_bottom)
+    {
+        mvhline(y+height-1,x+1,'=',width-2);
+        mvaddch(y+height-1,x,'+');
+        mvaddch(y+height-1,x+width-1,'+');
+    }
+
+    if(label && strlen(label) < width+2)
+    {
+        mvprintw(y,x+2," %s ",label);
+    }
+}
 int main(int argc, char *argv[])
 {
     int i;
@@ -22,8 +46,11 @@ int main(int argc, char *argv[])
     WINDOW *logwin;
     debug_t debugger;
     bool done;
-    char c;
+    int c;
     int dbgwidth;
+    int dbgheight;
+    bpwin_t bpwin;
+    regwin_t regwin;
 
     if(argc < 2)
     {
@@ -42,8 +69,15 @@ int main(int argc, char *argv[])
     debugger = debug_init(cb6502_get_sys());
 
     dbgwidth = COLS/2;
+    dbgheight = LINES-8;
 
-    logwin = newwin(LINES, COLS-dbgwidth, 0, dbgwidth);
+    draw_box(0,0,dbgheight+1,dbgwidth+1, "Disassembly", false);
+    draw_box(dbgheight, 0, LINES-dbgheight, dbgwidth+1, "Breakpoints", true);
+    draw_box(0,dbgwidth,5,COLS-dbgwidth, "Registers", false);
+    draw_box(4, dbgwidth, LINES-4, COLS-dbgwidth, "Log", true);
+    refresh();
+
+    logwin = newwin(LINES-6, COLS-dbgwidth-2, 5, dbgwidth+1);
 #if 1
     curses_logwin_init(logwin);
     log_set_handler(curses_logwin_print);
@@ -52,9 +86,18 @@ int main(int argc, char *argv[])
 #endif
     log_set_level(lDEBUG);
     refresh();
-    win = newwin(LINES, dbgwidth, 0, 0);
+    win = newwin(dbgheight-1, dbgwidth-2, 1, 1);
     refresh();
-    dbgwin = debugwin_create(win, debugger, LINES, COLS);
+    dbgwin = debugwin_create(win, debugger);
+
+    win = newwin(LINES-dbgheight-2, dbgwidth-1, dbgheight+1, 1);
+    refresh();
+    bpwin = bpwin_init(win, debugger);
+
+    win = newwin(3, COLS-dbgwidth-2, 1, dbgwidth+1);
+    regwin = regwin_init(win);
+
+    debugwin_set_bpwin(dbgwin, bpwin);
 
     done = false;
 
@@ -65,11 +108,14 @@ int main(int argc, char *argv[])
         if(c != CHAR_QUIT)
         {
             debugwin_processchar(dbgwin, c);
+            bpwin_processchar(bpwin, c);
         }
         else
         {
             done = true;
         }
+
+        regwin_refresh(regwin);
     }
 
     endwin();
