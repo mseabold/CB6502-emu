@@ -9,6 +9,7 @@ add_subdirectory(plat/cb6502)
 add_subdirectory(frontend)
 add_subdirectory(io/sdcard)
 add_subdirectory(io/at28c256)
+add_subdirectory(dbginfo)
 
 if(${ENABLE_TESTING})
     enable_testing()
