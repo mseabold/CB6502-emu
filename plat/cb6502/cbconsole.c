@@ -9,7 +9,7 @@
 #include "acia.h"
 #include "cb6502.h"
 #include "debugger.h"
-#include "debugwin.h"
+#include "disassemblywin.h"
 #include "log.h"
 #include "logwin.h"
 #include "bpwin.h"

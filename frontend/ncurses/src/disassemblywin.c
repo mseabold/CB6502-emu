@@ -4,7 +4,7 @@
 
 #include "bpwin.h"
 #include "debugger.h"
-#include "debugwin.h"
+#include "disassemblywin.h"
 #include "cpu.h"
 #include "log.h"
 

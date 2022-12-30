@@ -2,7 +2,7 @@ set(CURSES_NEED_WIDE TRUE)
 find_package(Curses REQUIRED)
 
 add_library(fe_ncurses STATIC
-    src/debugwin.c
+    src/disassemblywin.c
     src/logwin.c
     src/bpwin.c
     src/regwin.c
