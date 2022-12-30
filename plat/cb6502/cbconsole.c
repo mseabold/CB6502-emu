@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     int i;
     char disbuf[128];
     uint16_t pc;
-    debugwin_t dbgwin;
+    disasswin_t dbgwin;
     WINDOW *win;
     WINDOW *logwin;
     debug_t debugger;
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
     memwin = memwin_init(logwin, cb6502_get_sys());
     win = newwin(dbgheight-1, dbgwidth-2, 1, 1);
     refresh();
-    dbgwin = debugwin_create(win, debugger);
+    dbgwin = disasswin_create(win, debugger);
 
     win = newwin(LINES-dbgheight-2, dbgwidth-1, dbgheight+1, 1);
     refresh();
@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
     win = newwin(3, COLS-dbgwidth-2, 1, dbgwidth+1);
     regwin = regwin_init(win);
 
-    debugwin_set_bpwin(dbgwin, bpwin);
+    disasswin_set_bpwin(dbgwin, bpwin);
 
     done = false;
 
@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
 
         if(c != CHAR_QUIT)
         {
-            debugwin_processchar(dbgwin, c);
+            disasswin_processchar(dbgwin, c);
             bpwin_processchar(bpwin, c);
             memwin_processchar(memwin, c);
         }
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
 
     endwin();
 
-    debugwin_destroy(dbgwin);
+    disasswin_destroy(dbgwin);
     cb6502_destroy();
 
     return 0;

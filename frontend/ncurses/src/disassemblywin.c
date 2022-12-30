@@ -20,7 +20,7 @@ typedef struct
     char buf[OP_BUF_SIZE];
 } line_info_t;
 
-struct debugwin_s
+struct disasswin_s
 {
     WINDOW *curswin;
     int height;
@@ -36,13 +36,13 @@ struct debugwin_s
     uint16_t curpc;
 };
 
-static unsigned int screenline_to_bufline(debugwin_t handle, unsigned int screenline)
+static unsigned int screenline_to_bufline(disasswin_t handle, unsigned int screenline)
 {
     log_print(lDEBUG, "sl2bl(): sl: %u, result: %u, head: %u, height: %u\n", screenline, ((screenline + handle->curhead) % handle->height), handle->curhead, handle->height);
     return (screenline + handle->curhead) % handle->height;
 }
 
-static void refill_screen(debugwin_t handle, uint16_t pc_start, unsigned int offset, unsigned int count)
+static void refill_screen(disasswin_t handle, uint16_t pc_start, unsigned int offset, unsigned int count)
 {
     int index;
     unsigned int bufindex;
@@ -70,7 +70,7 @@ static void refill_screen(debugwin_t handle, uint16_t pc_start, unsigned int off
     wrefresh(handle->curswin);
 }
 
-static void selectline(debugwin_t handle, unsigned int newline)
+static void selectline(disasswin_t handle, unsigned int newline)
 {
     log_print(lDEBUG, "selectline: scr: %u, head: %u, bufl:%u, newl: %u, bufval: %s, pc: 0x%04x\n", handle->screenline, handle->curhead, screenline_to_bufline(handle, newline), newline, handle->line_info[screenline_to_bufline(handle, newline)].buf, cpu_get_reg(REG_PC));
     mvwchgat(handle->curswin, handle->screenline,0,-1,0,0,NULL);
@@ -79,7 +79,7 @@ static void selectline(debugwin_t handle, unsigned int newline)
     wrefresh(handle->curswin);
 }
 
-static void scrollup(debugwin_t handle, int amount)
+static void scrollup(disasswin_t handle, int amount)
 {
     int new;
     uint16_t pc;
@@ -98,7 +98,7 @@ static void scrollup(debugwin_t handle, int amount)
     log_print(lDEBUG, "scrollup() newhead: %s bufl[0]: %s\n", handle->line_info[handle->curhead].buf, handle->line_info[screenline_to_bufline(handle, 0)].buf);
 }
 
-static int findaddrline(debugwin_t handle, uint16_t addr)
+static int findaddrline(disasswin_t handle, uint16_t addr)
 {
     int index;
     int sl;
@@ -120,7 +120,7 @@ static int findaddrline(debugwin_t handle, uint16_t addr)
     return -1;
 }
 
-static void refresh_state(debugwin_t handle)
+static void refresh_state(disasswin_t handle)
 {
     unsigned int nextline;
 
@@ -156,9 +156,9 @@ static void refresh_state(debugwin_t handle)
     }
 }
 
-debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger)
+disasswin_t disasswin_create(WINDOW *curswindow, debug_t debugger)
 {
-    debugwin_t handle;
+    disasswin_t handle;
     int index;
     uint16_t pc;
     char disbuf[128];
@@ -167,7 +167,7 @@ debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger)
 
     getmaxyx(curswindow, height, width);
 
-    handle = (debugwin_t)malloc(sizeof(struct debugwin_s));
+    handle = (disasswin_t)malloc(sizeof(struct disasswin_s));
 
     if(handle == NULL)
     {
@@ -203,13 +203,13 @@ debugwin_t debugwin_create(WINDOW *curswindow, debug_t debugger)
     return handle;
 }
 
-void debugwin_destroy(debugwin_t window)
+void disasswin_destroy(disasswin_t window)
 {
     free(window->line_info);
     free(window);
 }
 
-void debugwin_processchar(debugwin_t window, char input)
+void disasswin_processchar(disasswin_t window, char input)
 {
     debug_breakpoint_t bphit;
     int nextline;
@@ -259,7 +259,7 @@ void debugwin_processchar(debugwin_t window, char input)
     }
 }
 
-void debugwin_set_bpwin(debugwin_t window, bpwin_t breakpoint_window)
+void disasswin_set_bpwin(disasswin_t window, bpwin_t breakpoint_window)
 {
     window->bpwin = breakpoint_window;
 }
