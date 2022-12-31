@@ -9,13 +9,14 @@
 #include "acia.h"
 #include "cb6502.h"
 #include "debugger.h"
-#include "disassemblywin.h"
+#include "codewin.h"
 #include "log.h"
 #include "logwin.h"
 #include "bpwin.h"
 #include "regwin.h"
 #include "memwin.h"
 #include "syslog_log.h"
+#include "dbginfo.h"
 
 #define CHAR_QUIT 'q'
 
@@ -73,12 +74,18 @@ static void draw_box(int y, int x, int height, int width, char *label, bool draw
         mvprintw(y,x+2," %s ",label);
     }
 }
+
+void dbginfo_error(const cc65_parseerror *error)
+{
+    printf("Dbg Parse Error: %c: %s %u:%u %s\n", error->type == CC65_ERROR ? 'E' : 'W', error->name, error->line, error->column, error->errormsg);
+}
+
 int main(int argc, char *argv[])
 {
     int i;
     char disbuf[128];
     uint16_t pc;
-    disasswin_t dbgwin;
+    codewin_t codewin;
     WINDOW *win;
     WINDOW *logwin;
     debug_t debugger;
@@ -89,6 +96,7 @@ int main(int argc, char *argv[])
     bpwin_t bpwin;
     regwin_t regwin;
     memwin_t memwin;
+    codewin_dbginfo_t dbgopt;
 
     if(argc < 2)
     {
@@ -128,7 +136,11 @@ int main(int argc, char *argv[])
     memwin = memwin_init(logwin, cb6502_get_sys());
     win = newwin(dbgheight-1, dbgwidth-2, 1, 1);
     refresh();
-    dbgwin = disasswin_create(win, debugger);
+
+    dbgopt.handle = cc65_read_dbginfo("/home/matt/git/CB6502/boot.dbg", dbginfo_error);
+    dbgopt.valid_options = DBGOPT_SOURCE_PREFIX;
+    dbgopt.source_prefix = "/home/matt/git/CB6502";
+    codewin = codewin_create(win, debugger, 1, &dbgopt);
 
     win = newwin(LINES-dbgheight-2, dbgwidth-1, dbgheight+1, 1);
     refresh();
@@ -137,7 +149,7 @@ int main(int argc, char *argv[])
     win = newwin(3, COLS-dbgwidth-2, 1, dbgwidth+1);
     regwin = regwin_init(win);
 
-    disasswin_set_bpwin(dbgwin, bpwin);
+    codewin_set_bpwin(codewin, bpwin);
 
     done = false;
 
@@ -147,7 +159,7 @@ int main(int argc, char *argv[])
 
         if(c != CHAR_QUIT)
         {
-            disasswin_processchar(dbgwin, c);
+            codewin_processchar(codewin, c);
             bpwin_processchar(bpwin, c);
             memwin_processchar(memwin, c);
         }
@@ -162,7 +174,7 @@ int main(int argc, char *argv[])
 
     endwin();
 
-    disasswin_destroy(dbgwin);
+    codewin_destroy(codewin);
     cb6502_destroy();
 
     return 0;

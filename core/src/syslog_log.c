@@ -6,6 +6,7 @@ static const int level_map[] =
 {
     LOG_DEBUG,
     LOG_INFO,
+    LOG_NOTICE,
     LOG_WARNING,
     LOG_ERR
 };

@@ -6,6 +6,7 @@ typedef enum
     lNONE,
     lDEBUG,
     lINFO,
+    lNOTICE,
     lWARNING,
     lERROR,
 } log_level_t;
