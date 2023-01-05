@@ -10,6 +10,7 @@
 #include "debugger.h"
 #include "cpu.h"
 #include "sys.h"
+#include "log.h"
 
 #define MAX_BREAKPOINTS 8
 #define BREAKPOINT_VALID_MASK 0x80000000
@@ -350,6 +351,7 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
     uint8_t opcode;
     bool is_ret = false;
     uint16_t pc;
+    unsigned int subroutine_count = 0;
 
     if(handle == NULL)
         return false;
@@ -365,9 +367,20 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
 
         opcode = sys_peek_mem(handle->syscxt, cpu_get_reg(REG_PC));
 
-        if(opcode == 0x40 || opcode == 0x60)
+        if(opcode == 0x20)
         {
-            is_ret = true;
+            ++subroutine_count;
+        }
+        else if((opcode == 0x40 || opcode == 0x60))
+        {
+            if(subroutine_count > 0)
+            {
+                --subroutine_count;
+            }
+            else
+            {
+                is_ret = true;
+            }
         }
 
         cpu_step();
