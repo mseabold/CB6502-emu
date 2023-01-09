@@ -20,4 +20,3 @@ target_link_libraries(cbconsole
         fe_ncurses
         syslog_log
 )
-

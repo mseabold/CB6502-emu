@@ -1,181 +1,225 @@
-#define _XOPEN_SOURCE_EXTENDED
-#include <ncurses.h>
 #include <stdio.h>
-#include <string.h>
+#include <argp.h>
+#include <stdlib.h>
 
-#include <locale.h>
-
-#include "cpu.h"
-#include "acia.h"
 #include "cb6502.h"
-#include "debugger.h"
-#include "codewin.h"
-#include "log.h"
-#include "logwin.h"
-#include "bpwin.h"
-#include "regwin.h"
-#include "memwin.h"
-#include "syslog_log.h"
 #include "dbginfo.h"
+#include "debugger.h"
+#include "log.h"
+#include "syslog_log.h"
+#include "cursmgr.h"
+#include "acia.h"
 
-#define CHAR_QUIT 'q'
+const char *argp_program_version = "cbconsole 0.1";
 
-#define CORNER_TL L'\u250c'
-#define CORNER_TR L'\u2510'
-#define CORNER_BL L'\u2514'
-#define CORNER_BR L'\u2518'
-#define T_DOWN    L'\u252c'
-#define T_RIGHT   L'\u251c'
-#define T_LEFT    L'\u2524'
-#define T_UP      L'\u2534'
-#define CROSS     L'\u253c'
-#define VERTLINE  L'\u2502'
-#define HORLINE   L'\u2500'
-
-#define SVERTLINE L"\u2502"
-#define SHORLINE  L"\u2500"
-
-extern WINDOW *linedebugwin;
-
-static void draw_box(int y, int x, int height, int width, char *label, bool draw_bottom, wchar_t tl, wchar_t tr, wchar_t bl, wchar_t br)
+typedef struct
 {
-    cchar_t verline;
-    cchar_t horline;
+    char *dbgfile;
+    char *acia_sock;
+    char *romfile;
+    char *source_prefix;
+    log_level_t log_level;
+} arguments_t;
 
-    setcchar(&verline, SVERTLINE, 0, 0, NULL);
-    setcchar(&horline, SHORLINE, 0, 0, NULL);
-    mvvline_set(y+1,x,&verline,height-2);
-    mvvline_set(y+1,x+width-1,&verline,height-2);
-    mvhline_set(y,x+1,&horline,width-2);
+static struct argp_option options[] =
+{
+    { "dbgfile", 'd', "DBGFILE", 0, "cc65 debug information file for ROM image" },
+    { "aciasock", 's', "SOCK", 0, "socket file for ACIA" },
+    { "dbgprefix", 'p', "PREFIX", 0, "source prefix to append to source files in the debug information" },
+    { "loglevel", 'l', "LEVEL", 0, "log level, 0=None ... 5=Error" },
+    { 0 }
+};
 
-    if(tl == 0)
-        tl = CORNER_TL;
+static char doc[] = "CB6502 emulator ncurses console application";
+static char arg_doc[] = "ROM_FILE";
 
-    if(tr == 0)
-        tr = CORNER_TR;
+static error_t parse_opt(int key, char *arg, struct argp_state *state)
+{
+    arguments_t *args = (arguments_t *)state->input;
+    char *endptr;
+    long val;
 
-    if(bl == 0)
-        bl = CORNER_BL;
-
-    if(br == 0)
-        br = CORNER_BR;
-
-    mvprintw(y,x,"%lc",tl);
-    mvprintw(y,x+width-1,"%lc",tr);
-    if(draw_bottom)
+    switch(key)
     {
-        mvhline_set(y+height-1,x+1,&horline,width-2);
-        mvprintw(y+height-1,x,"%lc",bl);
-        mvprintw(y+height-1,x+width-1,"%lc",br);
+        case 'd':
+            args->dbgfile = arg;
+            break;
+        case 's':
+            args->dbgfile = arg;
+            break;
+        case 'p':
+            args->source_prefix = arg;
+            break;
+        case 'l':
+            val = strtol(arg, &endptr, 10);
+
+            if(endptr == NULL || *endptr != 0 || val < 0 || val > 5)
+            {
+                fprintf(stderr, "Invalid log level\n");
+                argp_usage(state);
+            }
+
+            args->log_level = (log_level_t)val;
+            break;
+        case ARGP_KEY_ARG:
+            if(state->arg_num >= 1)
+            {
+                argp_usage(state);
+            }
+
+            args->romfile = arg;
+            break;
+        case ARGP_KEY_END:
+            if(state->arg_num < 1)
+                argp_usage(state);
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
     }
 
-    if(label && strlen(label) < width+2)
-    {
-        mvprintw(y,x+2," %s ",label);
-    }
+    return 0;
 }
+
+static struct argp argp = { options, parse_opt, arg_doc, doc };
+
+static codewin_params_t codewin_params =
+{
+    1,
+    0,
+    NULL
+};
+
+static window_info_t windows[] =
+{
+    { CODE,       0, 0, 0, 0, NULL, 0, &codewin_params },
+    { BREAKPOINT, 0, 0, 0, 0, NULL, 0, NULL },
+    { REGISTERS,  0, 0, 0, 0, NULL, 0, NULL },
+    { MEMORY,     0, 0, 0, 0, NULL, 0, NULL },
+};
 
 void dbginfo_error(const cc65_parseerror *error)
 {
-    printf("Dbg Parse Error: %c: %s %u:%u %s\n", error->type == CC65_ERROR ? 'E' : 'W', error->name, error->line, error->column, error->errormsg);
+    fprintf(stderr, "Dbg Parse Error: %c: %s %u:%u %s\n", error->type == CC65_ERROR ? 'E' : 'W', error->name, error->line, error->column, error->errormsg);
 }
 
 int main(int argc, char *argv[])
 {
-    int i;
-    char disbuf[128];
-    uint16_t pc;
-    codewin_t codewin;
-    WINDOW *win;
-    WINDOW *logwin;
+    arguments_t args;
+    codewin_dbginfo_t dbginfo;
+    unsigned int height, width;
+    unsigned int halfwidth;
     debug_t debugger;
-    bool done;
-    int c;
-    int dbgwidth;
-    int dbgheight;
-    bpwin_t bpwin;
-    regwin_t regwin;
-    memwin_t memwin;
-    codewin_dbginfo_t dbgopt;
+    sys_cxt_t sys;
 
-    if(argc < 2)
-    {
-        fprintf(stderr, "Usage: %s rom_file\n", argv[0]);
-        return 1;
-    }
+    args.romfile = NULL;
+    args.acia_sock = ACIA_DEFAULT_SOCKNAME;
+    args.dbgfile = NULL;
+    args.source_prefix = NULL;
+    args.log_level = lNONE;
 
-    if(!cb6502_init(argv[1], ACIA_DEFAULT_SOCKNAME))
+    if(argp_parse(&argp, argc, argv, 0, 0, &args) != 0)
         return 1;
 
-    setlocale(LC_ALL, "");
-    initscr();
-    cbreak();
-    noecho();
-    curs_set(0);
-
-    debugger = debug_init(cb6502_get_sys());
-
-    dbgwidth = COLS/2;
-    dbgheight = LINES-8;
-
-    draw_box(0,0,dbgheight+1,dbgwidth+1, "Disassembly", false, 0, T_DOWN, 0, 0);
-    draw_box(dbgheight, 0, LINES-dbgheight, dbgwidth+1, "Breakpoints", true, T_RIGHT, T_LEFT, 0, 0);
-    draw_box(0,dbgwidth,5,COLS-dbgwidth, "Registers", false, T_DOWN, 0, T_RIGHT, T_LEFT);
-    draw_box(4, dbgwidth, LINES-4, COLS-dbgwidth, "Memory", true, T_RIGHT, T_LEFT, T_UP, 0);
-    refresh();
-
-    logwin = newwin(LINES-6, COLS-dbgwidth-2, 5, dbgwidth+1);
-#if 1
-    //curses_logwin_init(logwin);
     log_set_handler(syslog_log_print);
-#else
-    linedebugwin = logwin;
-#endif
-    log_set_level(lDEBUG);
-    refresh();
-    memwin = memwin_init(logwin, cb6502_get_sys());
-    win = newwin(dbgheight-1, dbgwidth-2, 1, 1);
-    refresh();
+    log_set_level(args.log_level);
 
-    dbgopt.handle = cc65_read_dbginfo("/home/matt/git/CB6502/boot.dbg", dbginfo_error);
-    dbgopt.valid_options = DBGOPT_SOURCE_PREFIX;
-    dbgopt.source_prefix = "/home/matt/git/CB6502";
-    codewin = codewin_create(win, debugger, 1, &dbgopt);
-
-    win = newwin(LINES-dbgheight-2, dbgwidth-1, dbgheight+1, 1);
-    refresh();
-    bpwin = bpwin_init(win, debugger);
-
-    win = newwin(3, COLS-dbgwidth-2, 1, dbgwidth+1);
-    regwin = regwin_init(win);
-
-    codewin_set_bpwin(codewin, bpwin);
-
-    done = false;
-
-    while(!done)
+    if(args.dbgfile != NULL)
     {
-        c = getch();
+        /* Load the debug information. */
+        dbginfo.handle = cc65_read_dbginfo(args.dbgfile, dbginfo_error);
+        dbginfo.valid_options = 0;
 
-        if(c != CHAR_QUIT)
+        if(dbginfo.handle == NULL)
         {
-            codewin_processchar(codewin, c);
-            bpwin_processchar(bpwin, c);
-            memwin_processchar(memwin, c);
-        }
-        else
-        {
-            done = true;
+            return 1;
         }
 
-        regwin_refresh(regwin);
-        memwin_refresh(memwin);
+        if(args.source_prefix != NULL)
+        {
+            /* Add in the source prefix is given. */
+            dbginfo.source_prefix = args.source_prefix;
+            dbginfo.valid_options |= DBGOPT_SOURCE_PREFIX;
+        }
+
+        codewin_params.num_dbginfo = 1;
+        codewin_params.dbginfo = &dbginfo;
+    }
+    else
+        dbginfo.handle = NULL;
+
+    /* Initialize the core CB6502 platform. */
+    if(!cb6502_init(args.romfile, args.acia_sock))
+    {
+        fprintf(stderr, "Unable to initialize the platform\n");
+
+        if(dbginfo.handle != NULL)
+            cc65_free_dbginfo(dbginfo.handle);
+
+        return 1;
     }
 
-    endwin();
+    /* Create some emulator modules used by this application. */
+    sys = cb6502_get_sys();
+    debugger = debug_init(sys);
 
-    codewin_destroy(codewin);
+    if(debugger == NULL)
+    {
+        fprintf(stderr, "Unable to create debugger\n");
+
+        if(dbginfo.handle != NULL)
+            cc65_free_dbginfo(dbginfo.handle);
+
+        cb6502_destroy();
+
+        return 1;
+    }
+
+    /* Start the curses manager, getting the height and width of the screen. */
+    cursmgr_init(sys, debugger, &height, &width);
+
+    /* Make sure there is a resonable amount of space to show everything we need. */
+    if(height > 15)
+    {
+        /* Set up the window locations based on the screen size. */
+
+        /* First divide the screen in half (rounded up). */
+        halfwidth = (width + 1) / 2;
+
+        /* Code window is left half and top of screen, Leaving 7 lines on the bottom for
+         * breakpoints. */
+        windows[0].width = halfwidth;
+        windows[0].height = height - 7;
+
+        /* Breakpoint window is below code window. Note the border padding is intentionally
+         * overlapped. */
+        windows[1].y = windows[0].height - 1;
+        windows[1].height = 8;
+        windows[1].width = halfwidth;
+
+        /* Registers window is top-right, again overlapping the border padding on the left. */
+        windows[2].x = halfwidth - 1;
+        windows[2].width = width - halfwidth + 1;
+        windows[2].height = 5;
+
+        /* Memory watch window is below registers. */
+        windows[3].y = 4;
+        windows[3].x = halfwidth - 1;
+        windows[3].width = width - halfwidth + 1;
+        windows[3].height = height - 4;
+
+        /* Run the main curses manager loop. */
+        cursmgr_run(4, windows);
+    }
+    else
+        fprintf(stderr, "Screen is too small to display the cbconsole manager.");
+
+    /* Cleanup the curses manager and restore the original terminal settings */
+    cursmgr_cleanup();
+
+    if(dbginfo.handle != NULL)
+    {
+        cc65_free_dbginfo(dbginfo.handle);
+    }
+
     cb6502_destroy();
-
-    return 0;
 }

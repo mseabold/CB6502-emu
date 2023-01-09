@@ -550,7 +550,7 @@ static bool line_by_addr_depth(codewin_t handle, unsigned int addr, unsigned int
         return false;
     }
 
-    for(index = 0; index < spaninfo->count; ++index)
+    for(index = 0; index < spaninfo->count && !found; ++index)
     {
         if(spaninfo->data[index].line_count > 0)
         {
@@ -569,7 +569,6 @@ static bool line_by_addr_depth(codewin_t handle, unsigned int addr, unsigned int
                 {
                     found = true;
                     *line = lineinfo->data[0];
-                    break;
                 }
 
                 cc65_free_lineinfo(handle->dbginfo.handle, lineinfo);
@@ -892,9 +891,9 @@ static int find_addr_on_screen(codewin_t handle, uint16_t addr)
 
     for(index=0;index<handle->height;index++)
     {
-        if(handle->line_info[index].addr == addr)
+        if((handle->line_info[index].flags & (LINE_INFO_FLAG_NO_ADDR | LINE_INFO_FLAG_MACRO)) == 0)
         {
-            if((handle->line_info[index].flags & (LINE_INFO_FLAG_NO_ADDR | LINE_INFO_FLAG_MACRO)) == 0)
+            if(handle->line_info[index].addr == addr)
             {
                 log_print(lDEBUG, "find_addr_on_screen() Found %d\n", index);
                 return index;
@@ -994,6 +993,12 @@ codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_
 
 void codewin_destroy(codewin_t window)
 {
+    unsigned int index;
+
+    for(index = 0; index < FILE_POOL_SIZE; ++index)
+    {
+        free_fileinfo(window, &window->filepool.files[index]);
+    }
     free(window->line_info);
     free(window);
 }
