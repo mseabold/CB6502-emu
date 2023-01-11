@@ -10,6 +10,7 @@ add_library(fe_ncurses STATIC
     src/bpwin.c
     src/regwin.c
     src/memwin.c
+    src/tracewin.c
     src/cursmgr.c
 )
 

@@ -18,6 +18,7 @@
 #include "regwin.h"
 #include "codewin.h"
 #include "log.h"
+#include "tracewin.h"
 
 
 #define CORNER_TL L'\u250c'
@@ -130,6 +131,7 @@ static const char *default_labels[] =
     "Code",
     "Breakpoints",
     "Log",
+    "Bus Trace",
     NULL
 };
 
@@ -145,6 +147,7 @@ static const window_init_t initfuncs[] =
     codewin_init,
     bpwin_init,
     logwin_init,
+    tracewin_init,
     NULL
 };
 
@@ -154,6 +157,7 @@ static const window_processchar_t processfuncs[] =
     memwin_processchar,
     codewin_processchar,
     bpwin_processchar,
+    NULL,
     NULL,
     NULL
 };
@@ -165,6 +169,7 @@ static const window_refresh_t refreshfuncs[] =
     NULL,
     NULL,
     NULL,
+    tracewin_refresh,
     NULL
 };
 
@@ -175,6 +180,7 @@ static const window_destroy_t destroyfuncs[] =
     codewin_destroy,
     bpwin_destroy,
     NULL,
+    tracewin_destroy,
     NULL
 };
 

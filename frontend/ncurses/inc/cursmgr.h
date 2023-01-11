@@ -18,6 +18,7 @@ typedef enum
     CODE,       /**< Code/disassembly window */
     BREAKPOINT, /**< Breakpoint list window */
     LOG,        /**< Text log window */
+    TRACE,      /**< Memory bus trace window */
     CUSTOM,     /**< Custom application-defined window. (Not currently supported yet) */
 } window_type_t;
 

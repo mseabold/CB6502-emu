@@ -97,16 +97,39 @@ bool sys_check_interrupt(sys_cxt_t cxt, bool nmi)
 
 uint8_t sys_read_mem(sys_cxt_t cxt, uint16_t addr)
 {
+    uint8_t val;
+    mem_trace_entry_t *trace;
+
     if(cxt == NULL)
         return 0xff;
 
-    return cxt->mem_space.read(addr);
+    val = cxt->mem_space.read(addr);
+
+    trace = cxt->mem_trace_head->next;
+
+    while(trace != NULL)
+    {
+        trace->cb(addr, val, false, trace->param);
+        trace = trace->next;
+    }
+
+    return val;
 }
 
 void sys_write_mem(sys_cxt_t cxt, uint16_t addr, uint8_t val)
 {
+    mem_trace_entry_t *trace;
+
     if(cxt == NULL)
         return;
+
+    trace = cxt->mem_trace_head->next;
+
+    while(trace != NULL)
+    {
+        trace->cb(addr, val, true, trace->param);
+        trace = trace->next;
+    }
 
     cxt->mem_space.write(addr, val);
 }
