@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "sys.h"
+#include "dbginfo.h"
 
 /**
  * Handle for a debugger instance.
@@ -158,5 +159,14 @@ void debug_break(debug_t handle);
  * @return @c true if the debugger successfully executed until the next opcode in memory. @c false if it is returning early due to a breakpoint.
  */
 bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit);
+
+/**
+ * Provide the debugger with cc65 debug info for source file and symbol lookup.
+ *
+ * @param[in] handle The debugger handle.
+ * @param[in] num_dbginfo The number if debug information files. Currently only 1 is supported
+ * @param[in] dbginfo List if debug information files
+ */
+void debug_set_dbginfo(debug_t handle, unsigned int num_dbginfo, cc65_dbginfo *dbginfo);
 
 #endif /* end of include guard: __DEBUGGER_H__ */

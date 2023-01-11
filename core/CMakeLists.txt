@@ -14,6 +14,11 @@ target_include_directories(cbemu
         inc
 )
 
+target_link_libraries(cbemu
+    PUBLIC
+        dbginfo
+)
+
 if(SUPPORT_65C02)
     target_compile_definitions(cbemu PRIVATE SUPPORT_65C02)
 endif()

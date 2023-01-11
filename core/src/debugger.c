@@ -7,6 +7,7 @@
 #include <strings.h>
 #include <signal.h>
 
+#include "dbginfo.h"
 #include "debugger.h"
 #include "cpu.h"
 #include "sys.h"
@@ -33,8 +34,10 @@ typedef struct dbg_label_s
 typedef struct
 {
     bool used;
+    bool sym_valid;
     uint16_t addr;
     dbg_label_t *label;
+    cc65_symboldata sym;
 } breakpoint_t;
 
 struct debug_s
@@ -44,6 +47,7 @@ struct debug_s
     breakpoint_t breakpoints[MAX_BREAKPOINTS];
     sys_cxt_t syscxt;
     dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
+    cc65_dbginfo dbginfo;
 };
 
 static uint32_t hash_str(const char *str)
@@ -206,11 +210,59 @@ bool debug_set_breakpoint_addr(debug_t handle, debug_breakpoint_t *breakpoint_ha
 
 bool debug_set_breakpoint_label(debug_t handle, debug_breakpoint_t *breakpoint_handle, const char *label)
 {
-    unsigned int index;
+    unsigned int index, symindex;
     dbg_label_t *label_info;
+    const cc65_symbolinfo *syminfo;
 
     if(handle == NULL || breakpoint_handle == NULL)
         return false;
+
+    for(index = 0; index < MAX_BREAKPOINTS; ++index)
+    {
+        if(!handle->breakpoints[index].used)
+            break;
+    }
+
+    if(index == MAX_BREAKPOINTS)
+    {
+        return false;
+    }
+
+    if(handle->dbginfo != NULL)
+    {
+        syminfo = cc65_symbol_byname(handle->dbginfo, label);
+
+        if(syminfo != NULL)
+        {
+            for(symindex = 0; symindex < syminfo->count; ++symindex)
+            {
+                /* Find a label symbol. If there are multiple, for now
+                 * we'll just pick the first one we see. */
+                if(syminfo->data[symindex].symbol_type == CC65_SYM_LABEL)
+                {
+                    break;
+                }
+            }
+
+            if(symindex < syminfo->count)
+            {
+                /* The name pointer is kept valid for the lifetime of the debug info,
+                 * so it's safe to just copy the data out. */
+                handle->breakpoints[index].used = true;
+                handle->breakpoints[index].addr = syminfo->data[symindex].symbol_value;
+                handle->breakpoints[index].label = NULL;
+                handle->breakpoints[index].sym_valid = true;
+                handle->breakpoints[index].sym = syminfo->data[symindex];
+
+                cc65_free_symbolinfo(handle->dbginfo, syminfo);
+                return true;
+            }
+
+            cc65_free_symbolinfo(handle->dbginfo, syminfo);
+        }
+
+        /* Fall through and check the label hash table if no symbol could be found. */
+    }
 
     label_info = find_label(handle, label);
 
@@ -243,6 +295,7 @@ void debug_clear_breakpoint(debug_t handle, debug_breakpoint_t breakpoint_handle
 
     handle->breakpoints[breakpoint_handle].used = false;
     handle->breakpoints[breakpoint_handle].label = NULL;
+    handle->breakpoints[breakpoint_handle].sym_valid = false;
 }
 
 void debug_get_breakpoints(debug_t handle, unsigned int *num_breakpoints, breakpoint_info_t *breakpoints, unsigned int *total_breakpoints)
@@ -270,6 +323,10 @@ void debug_get_breakpoints(debug_t handle, unsigned int *num_breakpoints, breakp
                 if(handle->breakpoints[index].label != NULL)
                 {
                     breakpoints[out_index].label = handle->breakpoints[index].label->label;
+                }
+                else if(handle->breakpoints[index].sym_valid)
+                {
+                    breakpoints[out_index].label = handle->breakpoints[index].sym.symbol_name;
                 }
                 else
                 {
@@ -409,4 +466,28 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
     }
 
     return false;
+}
+
+void debug_set_dbginfo(debug_t handle, unsigned int num_dbginfo, cc65_dbginfo *dbginfo)
+{
+    unsigned int index;
+
+    if(handle == NULL || num_dbginfo > 1)
+    {
+        return;
+    }
+
+    if(num_dbginfo == 0)
+    {
+        for(index = 0; index < MAX_BREAKPOINTS; ++index)
+        {
+            handle->breakpoints[index].sym_valid = false;
+        }
+
+        handle->dbginfo = NULL;
+    }
+    else
+    {
+        handle->dbginfo = *dbginfo;
+    }
 }

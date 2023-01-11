@@ -239,7 +239,6 @@ static void draw_corner(corner_type_t type, int y, int x)
 
     in_wch(&c);
 
-    log_print(lDEBUG, "num wchars: %d\n", getcchar(&c, NULL, &attrs, &colorpair, NULL));
     getcchar(&c, wstr, &attrs, &colorpair, NULL);
 
     map = &corner_map[type];
@@ -438,8 +437,6 @@ void process_csi(void)
     {
         index = find_window_dir(y, x, dir);
 
-        log_print(lDEBUG, "Move selected to %d\n", index);
-
         if(index >= 0)
         {
             selected = index;
@@ -451,7 +448,6 @@ void process_csi(void)
 
 void process_escape(int c)
 {
-    log_print(lDEBUG, "process_escape 0x%02x\n", c, c);
     if(c > 0xff)
     {
         /* Escape sequences should not be wide characters. */
@@ -485,7 +481,6 @@ void process_escape(int c)
         /* Termination byte. */
         in_escape = false;
 
-        log_print(lDEBUG, "Escape seq: %s\n", &escapebuf[1]);
         process_csi();
     }
 }
@@ -551,8 +546,6 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
             if(window->parameters != NULL)
             {
                 int bpindex = ((cursmgr_codewin_params_t *)window->parameters)->breakpoint_window;
-
-                log_print(lDEBUG, "bpindex: %d\n", bpindex);
 
                 if(bpindex < -1 || bpindex >= (int)num_windows)
                 {
@@ -653,7 +646,6 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
     while(!exit)
     {
         c = getch();
-        log_print(lDEBUG, "getchar: 0x%02x\n", c);
 
         if(in_escape || c == 0x1b)
         {

@@ -204,6 +204,11 @@ int main(int argc, char *argv[])
         debug_load_labels(debugger, args.labelfile);
     }
 
+    if(args.dbgfile)
+    {
+        debug_set_dbginfo(debugger, 1, &dbginfo.handle);
+    }
+
     /* Start the curses manager, getting the height and width of the screen. */
     cursmgr_init(&height, &width);
 
