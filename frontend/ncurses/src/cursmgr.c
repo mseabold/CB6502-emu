@@ -64,6 +64,19 @@ typedef struct
 
 #define NUM_ENTRIES(_map) (sizeof(_map)/sizeof(corner_map_entry_t))
 
+typedef void *(*window_init_t)(WINDOW *curswin, void *params);
+typedef void (*window_processchar_t)(void *handle, int c);
+typedef void (*window_refresh_t)(void *handle);
+typedef void (*window_destroy_t)(void *handle);
+
+typedef enum
+{
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT
+} direction_t;
+
 const corner_map_entry_t topleft_map[] =
 {
     { CORNER_TR, T_DOWN },
@@ -135,11 +148,6 @@ static const char *default_labels[] =
     NULL
 };
 
-typedef void *(*window_init_t)(WINDOW *curswin, void *params);
-typedef void (*window_processchar_t)(void *handle, int c);
-typedef void (*window_refresh_t)(void *handle);
-typedef void (*window_destroy_t)(void *handle);
-
 static const window_init_t initfuncs[] =
 {
     regwin_init,
@@ -187,6 +195,10 @@ static const window_destroy_t destroyfuncs[] =
 static const window_info_t *windows;
 static unsigned int num_windows;
 window_handle_t *handles;
+static bool in_escape = false;
+static char escapebuf[16];
+static unsigned int escapeidx;
+static unsigned int selected;
 
 static void draw_line(int y, int x, int size, bool vert)
 {
@@ -286,7 +298,7 @@ static void draw_corners(const window_info_t *window)
     draw_corner(BOTTOM_RIGHT, window->y + window->height - 1, window->x + window->width - 1);
 }
 
-static void draw_label(const window_info_t *window)
+static void draw_label(const window_info_t *window, bool selected)
 {
     const char *label = window->label;
 
@@ -307,7 +319,19 @@ static void draw_label(const window_info_t *window)
         return;
     }
 
-    mvprintw(window->y, window->x+2, " %s ", label);
+    mvprintw(window->y, window->x+2, " %s%c", label, selected ? '*' : ' ');
+}
+
+static void refresh_labels(void)
+{
+    unsigned int index;
+
+    for(index = 0; index < num_windows; ++index)
+    {
+        draw_label(&windows[index], index == selected);
+    }
+
+    refresh();
 }
 
 static bool check_overlap(const window_info_t *w1, const window_info_t *w2)
@@ -324,6 +348,147 @@ static bool check_overlap(const window_info_t *w1, const window_info_t *w2)
     return true;
 }
 
+static int find_window_dir(int y, int x, direction_t dir)
+{
+    int dy = 0;
+    int dx = 0;
+    int index;
+
+    switch(dir)
+    {
+        case UP:
+            dy = -1;
+            break;
+        case DOWN:
+            dy = 1;
+            break;
+        case LEFT:
+            dx = -1;
+            break;
+        case RIGHT:
+            dx = 1;
+            break;
+    }
+
+    /* Move y/x once so it no longer points to the current window. */
+    y += dy;
+    x += dx;
+
+    while(y >= 0 && y < LINES && x >= 0 && x < COLS)
+    {
+        for(index = 0; index < num_windows; ++index)
+        {
+            const window_info_t *window = &windows[index];
+
+            if(y >= window->y && y < window->y + window->height
+                && x >= window->x && x < window->x + window->width)
+            {
+                return index;
+            }
+        }
+
+        y += dy;
+        x += dx;
+    }
+
+    return -1;
+}
+
+void process_csi(void)
+{
+    bool move = true;
+    int index;
+    direction_t dir;
+    int y,x;
+    const window_info_t *selwindow = &windows[selected];
+
+    /* TODO. Actually process the parameter numbers. For now, we know since we
+     *       gave ncurses keypad() that we won't get plain arrows as control
+     *       sequences. So for now, just treat any control with the arrow terminators
+     *       as movement commands. This means shift, alt, control, etc will all trigger
+     *       movement. In the future, this should be limited to control. */
+    switch(escapebuf[escapeidx-1])
+    {
+        case 'A':
+            y = selwindow->y;
+            x = (selwindow->x + selwindow->width) / 2;
+            dir = UP;
+            break;
+        case 'B':
+            y = selwindow->y + selwindow->height - 1;
+            x = (selwindow->x + selwindow->width) / 2;
+            dir = DOWN;
+            break;
+        case 'C':
+            y = (selwindow->y + selwindow->height / 2);
+            x = selwindow->x + selwindow->width - 1;
+            dir = RIGHT;
+            break;
+        case 'D':
+            y = (selwindow->y + selwindow->height / 2);
+            x = selwindow->x;
+            dir = LEFT;
+            break;
+        default:
+            move = false;
+            break;
+    }
+
+    if(move)
+    {
+        index = find_window_dir(y, x, dir);
+
+        log_print(lDEBUG, "Move selected to %d\n", index);
+
+        if(index >= 0)
+        {
+            selected = index;
+
+            refresh_labels();
+        }
+    }
+}
+
+void process_escape(int c)
+{
+    log_print(lDEBUG, "process_escape 0x%02x\n", c, c);
+    if(c > 0xff)
+    {
+        /* Escape sequences should not be wide characters. */
+        in_escape = false;
+        return;
+    }
+
+    if(!in_escape)
+    {
+        escapeidx = 0;
+        in_escape = true;
+    }
+
+    escapebuf[escapeidx++] = (char)c;
+
+    if(escapeidx == 2)
+    {
+        /* Right now, we only care about CSIs */
+        if(c != '[')
+        {
+            in_escape = false;
+            return;
+        }
+
+        /* Start CSI */
+        return;
+    }
+
+    if(c >= 0x40 && c <= 0x7E)
+    {
+        /* Termination byte. */
+        in_escape = false;
+
+        log_print(lDEBUG, "Escape seq: %s\n", &escapebuf[1]);
+        process_csi();
+    }
+}
 void cursmgr_init(unsigned int *height, unsigned int *width)
 {
 #ifdef CURSES_WIDE_CHAR
@@ -354,6 +519,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
 
     num_windows = _num_windows;
     windows = _windows;
+    selected = 0;
 
     if(num_windows == 0 || windows == NULL)
     {
@@ -470,7 +636,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
 
         if(!(window->flags & NO_LABEL))
         {
-            draw_label(window);
+            draw_label(window, index == selected);
         }
 
         if(window->type == CODE)
@@ -487,15 +653,17 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
     while(!exit)
     {
         c = getch();
+        log_print(lDEBUG, "getchar: 0x%02x\n", c);
 
-        for(index = 0; index < num_windows; ++index)
+        if(in_escape || c == 0x1b)
         {
-            const window_info_t *window = &windows[index];
+            process_escape(c);
+            continue;
+        }
 
-            if(processfuncs[window->type] != NULL)
-            {
-                processfuncs[window->type](handles[index].handle, c);
-            }
+        if(processfuncs[windows[selected].type] != NULL)
+        {
+            processfuncs[windows[selected].type](handles[selected].handle, c);
         }
 
         for(index = 0; index < num_windows; ++index)
