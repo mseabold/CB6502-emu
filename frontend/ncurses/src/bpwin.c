@@ -53,7 +53,7 @@ static void refresh_win(bpwin_cxt_t handle)
 
         if(handle->bp_info[index].label != NULL)
         {
-            wprintw(handle->curswin, "#%2u: %s\n", handle->bp_info[index].handle, handle->bp_info[index].label);
+            wprintw(handle->curswin, "#%2u: 0x%04x %s\n", handle->bp_info[index].handle, handle->bp_info[index].address, handle->bp_info[index].label);
         }
         else
         {
