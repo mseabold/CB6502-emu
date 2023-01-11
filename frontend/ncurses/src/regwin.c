@@ -8,9 +8,11 @@ struct regwin_s
     WINDOW *curswin;
 };
 
-regwin_t regwin_init(WINDOW *curswin)
+typedef struct regwin_s *regwin_cxt_t;
+
+regwin_t regwin_init(WINDOW *curswin, void *params)
 {
-    regwin_t handle;
+    regwin_cxt_t handle;
 
     handle = malloc(sizeof(struct regwin_s));
 
@@ -28,6 +30,7 @@ void regwin_refresh(regwin_t window)
 {
     cpu_regs_t regs;
     char flags[9];
+    regwin_cxt_t handle = (regwin_cxt_t)window;
 
     cpu_get_regs(&regs);
 
@@ -41,12 +44,12 @@ void regwin_refresh(regwin_t window)
     flags[7] = (regs.s & 0x01) ? 'C' : '-';
     flags[8] = 0;
 
-    wmove(window->curswin, 0, 0);
-    wprintw(window->curswin, "A:  %02x\t\tSP: %02x\n", regs.a, regs.sp);
-    wprintw(window->curswin, "X:  %02x\t\tY:  %02x\n", regs.x, regs.y);
-    wprintw(window->curswin, "PC: %04x\tS:  %s\n", regs.pc, flags);
+    wmove(handle->curswin, 0, 0);
+    wprintw(handle->curswin, "A:  %02x\t\tSP: %02x\n", regs.a, regs.sp);
+    wprintw(handle->curswin, "X:  %02x\t\tY:  %02x\n", regs.x, regs.y);
+    wprintw(handle->curswin, "PC: %04x\tS:  %s\n", regs.pc, flags);
 
-    wrefresh(window->curswin);
+    wrefresh(handle->curswin);
 }
 
 void regwin_destroy(regwin_t window)

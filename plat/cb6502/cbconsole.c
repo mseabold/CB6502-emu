@@ -9,6 +9,7 @@
 #include "syslog_log.h"
 #include "cursmgr.h"
 #include "acia.h"
+#include "memwin.h"
 
 const char *argp_program_version = "cbconsole 0.1";
 
@@ -82,19 +83,35 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 static struct argp argp = { options, parse_opt, arg_doc, doc };
 
-static codewin_params_t codewin_params =
+static cursmgr_codewin_params_t bplink =
 {
     1,
+};
+
+static codewin_params_t codewin_params =
+{
+    NULL,
     0,
     NULL
 };
 
+static bpwin_params_t bpwin_params =
+{
+    NULL
+};
+
+static memwin_params_t memwin_params =
+{
+    NULL
+};
+
+
 static window_info_t windows[] =
 {
-    { CODE,       0, 0, 0, 0, NULL, 0, &codewin_params },
-    { BREAKPOINT, 0, 0, 0, 0, NULL, 0, NULL },
-    { REGISTERS,  0, 0, 0, 0, NULL, 0, NULL },
-    { MEMORY,     0, 0, 0, 0, NULL, 0, NULL },
+    { CODE,       0, 0, 0, 0, NULL, 0, &bplink, &codewin_params },
+    { BREAKPOINT, 0, 0, 0, 0, NULL, 0, NULL,    &bpwin_params   },
+    { REGISTERS,  0, 0, 0, 0, NULL, 0, NULL,    NULL            },
+    { MEMORY,     0, 0, 0, 0, NULL, 0, NULL,    &memwin_params  },
 };
 
 void dbginfo_error(const cc65_parseerror *error)
@@ -175,7 +192,7 @@ int main(int argc, char *argv[])
     }
 
     /* Start the curses manager, getting the height and width of the screen. */
-    cursmgr_init(sys, debugger, &height, &width);
+    cursmgr_init(&height, &width);
 
     /* Make sure there is a resonable amount of space to show everything we need. */
     if(height > 15)
@@ -189,12 +206,14 @@ int main(int argc, char *argv[])
          * breakpoints. */
         windows[0].width = halfwidth;
         windows[0].height = height - 7;
+        codewin_params.debugger = debugger;
 
         /* Breakpoint window is below code window. Note the border padding is intentionally
          * overlapped. */
         windows[1].y = windows[0].height - 1;
         windows[1].height = 8;
         windows[1].width = halfwidth;
+        bpwin_params.debugger = debugger;
 
         /* Registers window is top-right, again overlapping the border padding on the left. */
         windows[2].x = halfwidth - 1;
@@ -206,6 +225,7 @@ int main(int argc, char *argv[])
         windows[3].x = halfwidth - 1;
         windows[3].width = width - halfwidth + 1;
         windows[3].height = height - 4;
+        memwin_params.sys = sys;
 
         /* Run the main curses manager loop. */
         cursmgr_run(4, windows);

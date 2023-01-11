@@ -15,35 +15,24 @@ typedef enum
 {
     REGISTERS, /**< Register watch window */
     MEMORY,     /**< Memory dump window */
-    CODE,
+    CODE,       /**< Code/disassembly window */
     BREAKPOINT, /**< Breakpoint list window */
     LOG,        /**< Text log window */
     CUSTOM,     /**< Custom application-defined window. (Not currently supported yet) */
 } window_type_t;
 
 /**
- * Parameter data for code windows
+ * Additional manager-specific layer of parameters specifically for codewins that allows
+ * the user to supply a breakpoint window to link to the code window.
  */
 typedef struct
 {
     /**
-     * Index within the window list that includes a breakpoint window the
-     * code windows can use to highlight breakpoints when hit. Should be set to
-     * -1 if there is no breakpoint window to use.
+     * Window in the window list given to cursmgr_run for a breakpoint window to link to.
+     * -1 indicates that there is no breakpoint window to link.
      */
-    int breakpoint_window_index;
-
-    /**
-     * Number of debug information contexts supplied.
-     * Note: Currently only 1 is supported.
-     */
-    unsigned int num_dbginfo;
-
-    /**
-     * List of debug information contexts to supply to the code window.
-     */
-    const codewin_dbginfo_t *dbginfo;
-} codewin_params_t;
+    int breakpoint_window;
+} cursmgr_codewin_params_t;
 
 /**
  * Definition for a curses window to be displayed by the curses manager
@@ -88,10 +77,16 @@ typedef struct
     uint32_t flags;
 
     /**
-     * Window-specific parameters that will be passed to the window manager when it is
-     * initialized based on the window type.
+     * Parameters for the curses manager. There are window-specific, but internal to the
+     * manager and not passed to the window itself.
      */
     void *parameters;
+
+    /**
+     * Window-specific parameters that will be passed to the window manager when it is
+     * initialized.
+     */
+    void *window_parameters;
 } window_info_t;
 
 /**
@@ -121,13 +116,10 @@ typedef enum
 /**
  * Initializes the curses manager and prepares the terminal for curses mode.
  *
- * @param[in] sys       The emulator system context
- * @param[in] debugger  The debug context that will be used for windows that require it. Can be NULL
- *                      if no windows that need it are used.
  * @param[out] height   If supplied, will be populated with the height of the terminal screen.
  * @param[out] width    If supplied, will be populated with the width of the terminal screen.
  */
-void cursmgr_init(sys_cxt_t sys, debug_t debugger, unsigned int *height, unsigned int *width);
+void cursmgr_init(unsigned int *height, unsigned int *width);
 
 /**
  * Initializes and draw the supplied windows and starts the curses manager main loop

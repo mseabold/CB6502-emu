@@ -5,9 +5,14 @@
 
 #include "sys.h"
 
-typedef struct memwin_s *memwin_t;
+typedef void *memwin_t;
 
-memwin_t memwin_init(WINDOW *curswin, sys_cxt_t sys);
+typedef struct
+{
+    sys_cxt_t sys;
+} memwin_params_t;
+
+memwin_t memwin_init(WINDOW *curswin, void *params);
 void memwin_refresh(memwin_t window);
 void memwin_processchar(memwin_t window, int input);
 void memwin_destroy(memwin_t window);

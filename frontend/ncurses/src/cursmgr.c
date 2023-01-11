@@ -123,16 +123,6 @@ const corner_map_t corner_map[4] =
     { NUM_ENTRIES(bottomright_map), bottomright_map },
 };
 
-static const bool requires_debugger[] =
-{
-    false, /* REGISTERS */
-    false, /* MEMORY */
-    true,  /* CODE */
-    true,  /* BREAKPOINT */
-    false, /* LOG */
-    false, /* CUSTOM */
-};
-
 static const char *default_labels[] =
 {
     "Registers",
@@ -143,8 +133,51 @@ static const char *default_labels[] =
     NULL
 };
 
-static sys_cxt_t sys;
-static debug_t debugger;
+typedef void *(*window_init_t)(WINDOW *curswin, void *params);
+typedef void (*window_processchar_t)(void *handle, int c);
+typedef void (*window_refresh_t)(void *handle);
+typedef void (*window_destroy_t)(void *handle);
+
+static const window_init_t initfuncs[] =
+{
+    regwin_init,
+    memwin_init,
+    codewin_init,
+    bpwin_init,
+    logwin_init,
+    NULL
+};
+
+static const window_processchar_t processfuncs[] =
+{
+    NULL,
+    memwin_processchar,
+    codewin_processchar,
+    bpwin_processchar,
+    NULL,
+    NULL
+};
+
+static const window_refresh_t refreshfuncs[] =
+{
+    regwin_refresh,
+    memwin_refresh,
+    NULL,
+    NULL,
+    NULL,
+    NULL
+};
+
+static const window_destroy_t destroyfuncs[] =
+{
+    regwin_destroy,
+    memwin_destroy,
+    codewin_destroy,
+    bpwin_destroy,
+    NULL,
+    NULL
+};
+
 static const window_info_t *windows;
 static unsigned int num_windows;
 window_handle_t *handles;
@@ -285,7 +318,7 @@ static bool check_overlap(const window_info_t *w1, const window_info_t *w2)
     return true;
 }
 
-void cursmgr_init(sys_cxt_t _sys, debug_t _debugger, unsigned int *height, unsigned int *width)
+void cursmgr_init(unsigned int *height, unsigned int *width)
 {
 #ifdef CURSES_WIDE_CHAR
     setlocale(LC_ALL, "");
@@ -295,9 +328,6 @@ void cursmgr_init(sys_cxt_t _sys, debug_t _debugger, unsigned int *height, unsig
     cbreak();
     noecho();
     curs_set(0);
-
-    sys = _sys;
-    debugger = _debugger;
 
     if(height)
         *height = LINES;
@@ -319,7 +349,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
     num_windows = _num_windows;
     windows = _windows;
 
-    if(num_windows == 0 || windows == NULL || sys == NULL)
+    if(num_windows == 0 || windows == NULL)
     {
         return ERR_INVALID_PARAMETER;
     }
@@ -344,16 +374,11 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
             return ERR_WINDOW_DOES_NOT_FIT;
         }
 
-        if(requires_debugger[window->type] && debugger == NULL)
-        {
-            return ERR_DEBUGGER_REQUIRED;
-        }
-
         if(window->type == CODE)
         {
             if(window->parameters != NULL)
             {
-                int bpindex = ((codewin_params_t *)window->parameters)->breakpoint_window_index;
+                int bpindex = ((cursmgr_codewin_params_t *)window->parameters)->breakpoint_window;
 
                 log_print(lDEBUG, "bpindex: %d\n", bpindex);
 
@@ -410,34 +435,18 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
 
         refresh();
 
-        switch(window->type)
+        if(initfuncs[window->type] != NULL)
         {
-            case REGISTERS:
-                handle->handle = regwin_init(handle->window);
-                break;
-            case MEMORY:
-                handle->handle = memwin_init(handle->window, sys);
-                break;
-            case CODE:
-                handle->handle = codewin_create(handle->window, debugger, ((codewin_params_t *)window->parameters)->num_dbginfo, ((codewin_params_t *)window->parameters)->dbginfo);
-                break;
-            case BREAKPOINT:
-                handle->handle = bpwin_init(handle->window, debugger);
-                break;
-            case LOG:
-                /* There is no dynamic context so there is no handle */
-                curses_logwin_init(handle->window);
-                break;
-            case CUSTOM:
-                /* Not currently supported. */
-                break;
+            handle->handle = initfuncs[window->type](handle->window, window->window_parameters);
 
+            if(handles->handle == NULL)
+            {
+                status = ERR_ON_WINDOW_INIT;
+            }
         }
-
-        /* Log window doesn't have handle. Otherwise fail out if a handle was not created. */
-        if(window->type != LOG && handles->handle == NULL)
+        else
         {
-            status = ERR_ON_WINDOW_INIT;
+            status = ERR_INVALID_PARAMETER;
         }
     }
 
@@ -460,7 +469,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
 
         if(window->type == CODE)
         {
-            idx = ((codewin_params_t *)window->parameters)->breakpoint_window_index;
+            idx = ((cursmgr_codewin_params_t *)window->parameters)->breakpoint_window;
 
             if(idx != -1)
                 codewin_set_bpwin((codewin_t)handles[index].handle, (bpwin_t)handles[idx].handle);
@@ -475,38 +484,21 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
 
         for(index = 0; index < num_windows; ++index)
         {
-            switch(windows[index].type)
+            const window_info_t *window = &windows[index];
+
+            if(processfuncs[window->type] != NULL)
             {
-                case MEMORY:
-                    memwin_processchar((memwin_t)handles[index].handle, c);
-                    break;
-                case CODE:
-                    codewin_processchar((codewin_t)handles[index].handle, c);
-                    break;
-                case BREAKPOINT:
-                    bpwin_processchar((bpwin_t)handles[index].handle, c);
-                    break;
-                case CUSTOM:
-                    break;
-                default:
-                    break;
+                processfuncs[window->type](handles[index].handle, c);
             }
         }
 
         for(index = 0; index < num_windows; ++index)
         {
-            switch(windows[index].type)
+            const window_info_t *window = &windows[index];
+
+            if(refreshfuncs[window->type] != NULL)
             {
-                case REGISTERS:
-                    regwin_refresh((regwin_t)handles[index].handle);
-                    break;
-                case MEMORY:
-                    memwin_refresh((memwin_t)handles[index].handle);
-                    break;
-                case CUSTOM:
-                    break;
-                default:
-                    break;
+                refreshfuncs[window->type](handles[index].handle);
             }
         }
 
@@ -522,31 +514,9 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         if(handles[index].window != NULL)
             delwin(handles[index].window);
 
-        if(handles[index].handle != NULL)
+        if(handles[index].handle != NULL && destroyfuncs[windows[index].type] != NULL)
         {
-            switch(windows[index].type)
-            {
-                case REGISTERS:
-                    regwin_destroy((regwin_t)handles[index].handle);
-                    break;
-                case MEMORY:
-                    memwin_destroy((memwin_t)handles[index].handle);
-                    break;
-                case CODE:
-                    codewin_destroy((codewin_t)handles[index].handle);
-                    break;
-                case BREAKPOINT:
-                    bpwin_destroy((bpwin_t)handles[index].handle);
-                    break;
-                case LOG:
-                    /* No destroy atm. */
-                    break;
-                case CUSTOM:
-                    /* Currently unsupported */
-                    break;
-                default:
-                    break;
-            }
+            destroyfuncs[windows[index].type](handles[index].handle);
         }
     }
 

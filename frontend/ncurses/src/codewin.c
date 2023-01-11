@@ -91,17 +91,19 @@ struct codewin_s
     file_pool_t filepool;
 };
 
+typedef struct codewin_s *codewin_cxt_t;
+
 static const char EMPTY_LINE[] = "~";
 
 /* Forward declared some common functions. */
-static int find_addr_on_screen(codewin_t handle, uint16_t addr);
-static void refresh_state(codewin_t handle);
+static int find_addr_on_screen(codewin_cxt_t handle, uint16_t addr);
+static void refresh_state(codewin_cxt_t handle);
 
 /**** Functions related to Disassembly Mode ****/
 
 /* Refills the line info buffer and the screen buffer in disassembly mode
  * starting at the supplied PC. */
-static void refill_disassembly(codewin_t handle, uint16_t pc_start)
+static void refill_disassembly(codewin_cxt_t handle, uint16_t pc_start)
 {
     unsigned int index;
 
@@ -124,7 +126,7 @@ static void refill_disassembly(codewin_t handle, uint16_t pc_start)
 }
 
 /* Changes the highlighted line in disassembly mode. */
-static void selectline(codewin_t handle, unsigned int newline)
+static void selectline(codewin_cxt_t handle, unsigned int newline)
 {
     if(handle->hiline != -1)
     {
@@ -137,7 +139,7 @@ static void selectline(codewin_t handle, unsigned int newline)
 }
 
 /* Scroll the current disassembly text up by amount lines. */
-static void scrollup(codewin_t handle, int amount)
+static void scrollup(codewin_cxt_t handle, int amount)
 {
     uint16_t pc;
 
@@ -150,7 +152,7 @@ static void scrollup(codewin_t handle, int amount)
 }
 
 /* Refresh the window state in disassembly mode. */
-static void refresh_disassembly(codewin_t handle)
+static void refresh_disassembly(codewin_cxt_t handle)
 {
     unsigned int nextline;
 
@@ -195,7 +197,7 @@ static void refresh_disassembly(codewin_t handle)
 /* Builds a source file name based on the base name in the debug information and
  * the supplied debug options. The options include replacing a substring of the given filename
  * as well as prefixing the base name with an additional path. */
-static void build_filename(codewin_t handle, char *buffer, size_t buffer_size, const char *base_name)
+static void build_filename(codewin_cxt_t handle, char *buffer, size_t buffer_size, const char *base_name)
 {
     const char *baseptr = base_name;
     char *repl_ptr;
@@ -231,7 +233,7 @@ static void build_filename(codewin_t handle, char *buffer, size_t buffer_size, c
 }
 
 /* Free data that has been allocated to track a file. */
-static void free_fileinfo(codewin_t handle, fileinfo_t *fileinfo)
+static void free_fileinfo(codewin_cxt_t handle, fileinfo_t *fileinfo)
 {
     if(fileinfo->data != NULL)
     {
@@ -254,7 +256,7 @@ static void free_fileinfo(codewin_t handle, fileinfo_t *fileinfo)
 /* Find an available entry in the file pool. This will prefer a unused entry
  * in the pool, but will fall back to an entry with allocated filed data that
  * is not currently being displayed on screen. */
-static int find_free_fileinfo(codewin_t handle)
+static int find_free_fileinfo(codewin_cxt_t handle)
 {
     unsigned int index;
     unsigned int inactive_index;
@@ -326,7 +328,7 @@ static fileinfo_t *find_file_id(file_pool_t *pool, unsigned int fileid)
 /* Loads a source file based on the debug info file ID. Information is loaded
  * into the supplied fileinfo_t pointer. This returns true if the file was
  * successfully loaded. */
-static bool load_file(codewin_t handle, unsigned int fileid, unsigned int fileindex)
+static bool load_file(codewin_cxt_t handle, unsigned int fileid, unsigned int fileindex)
 {
     const cc65_sourceinfo *sourceinfo;
     FILE *f;
@@ -446,7 +448,7 @@ static bool load_file(codewin_t handle, unsigned int fileid, unsigned int filein
 /* Attempt to found and (optionally) load the specified file. If set_active is
  * true, the fileinfo will be marked as active in the file pool, indicating that
  * is actively being displayed on screen and cannot be culled. */
-static fileinfo_t *get_file_info(codewin_t handle, unsigned int fileid, bool load, bool set_active)
+static fileinfo_t *get_file_info(codewin_cxt_t handle, unsigned int fileid, bool load, bool set_active)
 {
     fileinfo_t *info = NULL;
     int index;
@@ -536,7 +538,7 @@ static int find_line_index(const fileinfo_t *fileinfo, unsigned int line)
  * found corresponding line information. If this returns false, no line information
  * was found corresponding to the given address and depth.
  */
-static bool line_by_addr_depth(codewin_t handle, unsigned int addr, unsigned int depth, cc65_linedata *line)
+static bool line_by_addr_depth(codewin_cxt_t handle, unsigned int addr, unsigned int depth, cc65_linedata *line)
 {
     bool found = false;
     const cc65_spaninfo *spaninfo;
@@ -584,7 +586,7 @@ static bool line_by_addr_depth(codewin_t handle, unsigned int addr, unsigned int
 /* Attempts to locate a span entry for a given source line based on its associated assembly address. There
  * can be multiple spans associated for the same line, particulary for macros, so this function locates
  * the correct span based on address. */
-static bool span_from_line_addr(codewin_t handle, const fileinfo_t *fileinfo, unsigned int line, unsigned int addr, cc65_spandata *span)
+static bool span_from_line_addr(codewin_cxt_t handle, const fileinfo_t *fileinfo, unsigned int line, unsigned int addr, cc65_spandata *span)
 {
     const cc65_spaninfo *spaninfo;
     unsigned int index, index2;
@@ -648,7 +650,7 @@ static bool span_from_line_addr(codewin_t handle, const fileinfo_t *fileinfo, un
  * @param[in/out] addr   The current refernce address for associated code image. This will be updated by each recursive call
  * @param [in] parent    If non-NULL, represents the span of the parent line that recursive call should fill.
  */
-static void fill_from_file(codewin_t handle, unsigned int *line, unsigned int source_id, unsigned int start_line, unsigned int depth, unsigned int *addr, const cc65_spandata *parent)
+static void fill_from_file(codewin_cxt_t handle, unsigned int *line, unsigned int source_id, unsigned int start_line, unsigned int depth, unsigned int *addr, const cc65_spandata *parent)
 {
     fileinfo_t *fileinfo;
     unsigned int sourceline;
@@ -722,7 +724,7 @@ static void fill_from_file(codewin_t handle, unsigned int *line, unsigned int so
 
 /* Refill the screen and screen buffer with source file information using the
  * debug information. */
-static bool refill_source(codewin_t handle, int top_padding)
+static bool refill_source(codewin_cxt_t handle, int top_padding)
 {
     unsigned int maxdepth;
     const cc65_spaninfo *spaninfo;
@@ -789,7 +791,7 @@ static bool refill_source(codewin_t handle, int top_padding)
 }
 
 /* Refresh the state of the window in Source Mode. */
-static void refresh_source(codewin_t handle)
+static void refresh_source(codewin_cxt_t handle)
 {
     const cc65_sourceinfo *sourceinfo;
     unsigned int topline;
@@ -882,7 +884,7 @@ static void refresh_source(codewin_t handle)
  * can be highlighted/executed. This excludes lines that have no address
  * (comments, blank, etc) and macro lines that have been expanded to their
  * individual opcodes. */
-static int find_addr_on_screen(codewin_t handle, uint16_t addr)
+static int find_addr_on_screen(codewin_cxt_t handle, uint16_t addr)
 {
     int index;
 
@@ -909,7 +911,7 @@ static int find_addr_on_screen(codewin_t handle, uint16_t addr)
  * is available. Itfalls back to Disassembly Mode if there is not debug info, the
  * current PC cannot by mapped to a known source, or an error occurred while attempting
  * to load and display source information. */
-static void refresh_state(codewin_t handle)
+static void refresh_state(codewin_cxt_t handle)
 {
     handle->curpc = cpu_get_reg(REG_PC);
 
@@ -930,16 +932,22 @@ static void refresh_state(codewin_t handle)
 }
 
 /**** API Functions ****/
-codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_dbginfo, const codewin_dbginfo_t *dbginfo)
+codewin_t codewin_init(WINDOW *curswindow, void *p)
 {
-    codewin_t handle;
+    codewin_cxt_t handle;
     int index;
     uint16_t pc;
     char disbuf[128];
+    codewin_params_t *params = (codewin_params_t *)p;
+
+    if(params == NULL)
+    {
+        return NULL;
+    }
 
     /* For now, we only support a single dbginfo instance, with future support for
      * multiple dbg files (i.e. ROM and RAM apps). */
-    if(num_dbginfo > 1)
+    if(params->num_dbginfo > 1)
     {
         log_print(lNOTICE, "Multiple debug files currently not supported\n");
         return NULL;
@@ -949,7 +957,7 @@ codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_
 
     getmaxyx(curswindow, height, width);
 
-    handle = (codewin_t)malloc(sizeof(struct codewin_s));
+    handle = (codewin_cxt_t)malloc(sizeof(struct codewin_s));
 
     if(handle == NULL)
     {
@@ -967,7 +975,7 @@ codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_
     }
 
     handle->curswin = curswindow;
-    handle->debugger = debugger;
+    handle->debugger = params->debugger;
     handle->height = height;
     handle->width = width;
     handle->hiline = -1;
@@ -977,10 +985,10 @@ codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_
         handle->filepool.files[index].index = index;
     }
 
-    if(num_dbginfo > 0 && dbginfo != NULL)
+    if(params->num_dbginfo > 0 && params->dbginfo != NULL)
     {
         handle->dbginfo_valid = true;
-        handle->dbginfo = *dbginfo;
+        handle->dbginfo = *(params->dbginfo);
     }
 
     pc = cpu_get_reg(REG_PC);
@@ -993,61 +1001,63 @@ codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_
 
 void codewin_destroy(codewin_t window)
 {
+    codewin_cxt_t handle = (codewin_cxt_t)window;
     unsigned int index;
 
     for(index = 0; index < FILE_POOL_SIZE; ++index)
     {
-        free_fileinfo(window, &window->filepool.files[index]);
+        free_fileinfo(handle, &handle->filepool.files[index]);
     }
-    free(window->line_info);
-    free(window);
+    free(handle->line_info);
+    free(handle);
 }
 
-void codewin_processchar(codewin_t window, char input)
+void codewin_processchar(codewin_t window, int input)
 {
+    codewin_cxt_t handle = (codewin_cxt_t)window;
     debug_breakpoint_t bphit;
     int nextline;
 
-    if(window->bpwin)
-        bpwin_clear_active_bp(window->bpwin);
+    if(handle->bpwin)
+        bpwin_clear_active_bp(handle->bpwin);
 
     switch(input)
     {
         case 'n':
             /* Scroll if we reach the bottom 1/5 of the screen. */
-            if(debug_next(window->debugger, &bphit))
+            if(debug_next(handle->debugger, &bphit))
             {
-                if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+                if(handle->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
                 {
-                    bpwin_set_active_bp(window->bpwin, bphit);
+                    bpwin_set_active_bp(handle->bpwin, bphit);
                 }
             }
-            refresh_state(window);
+            refresh_state(handle);
             break;
         case 's':
-            debug_step(window->debugger);
-            refresh_state(window);
+            debug_step(handle->debugger);
+            refresh_state(handle);
             break;
         case 'f':
-            if(debug_finish(window->debugger, &bphit))
+            if(debug_finish(handle->debugger, &bphit))
             {
-                if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+                if(handle->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
                 {
-                    bpwin_set_active_bp(window->bpwin, bphit);
+                    bpwin_set_active_bp(handle->bpwin, bphit);
                 }
             }
             log_print(lDEBUG, "finish. New PC: %04x\n", cpu_get_reg(REG_PC));
-            refresh_state(window);
+            refresh_state(handle);
             break;
         case 'c':
-            debug_run(window->debugger, &bphit);
+            debug_run(handle->debugger, &bphit);
 
-            if(window->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
+            if(handle->bpwin != NULL && bphit != BREAKPOINT_HANDLE_SW_REQUEST)
             {
-                bpwin_set_active_bp(window->bpwin, bphit);
+                bpwin_set_active_bp(handle->bpwin, bphit);
             }
 
-            refresh_state(window);
+            refresh_state(handle);
             break;
         default:
             break;
@@ -1056,5 +1066,6 @@ void codewin_processchar(codewin_t window, char input)
 
 void codewin_set_bpwin(codewin_t window, bpwin_t breakpoint_window)
 {
-    window->bpwin = breakpoint_window;
+    codewin_cxt_t handle = (codewin_cxt_t)window;
+    handle->bpwin = breakpoint_window;
 }

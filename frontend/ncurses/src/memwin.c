@@ -19,6 +19,8 @@ struct memwin_s
     char search_str[4];
 };
 
+typedef struct memwin_s *memwin_cxt_t;
+
 static int hexchar_to_int(char hexchar)
 {
     if(hexchar >= 'a')
@@ -32,9 +34,10 @@ static int hexchar_to_int(char hexchar)
         return hexchar - '0';
 }
 
-memwin_t memwin_init(WINDOW *curswin, sys_cxt_t sys)
+memwin_t memwin_init(WINDOW *curswin, void *p)
 {
-    memwin_t handle;
+    memwin_cxt_t handle;
+    memwin_params_t *params = (memwin_params_t *)p;
 
     handle = malloc(sizeof(struct memwin_s));
 
@@ -44,7 +47,7 @@ memwin_t memwin_init(WINDOW *curswin, sys_cxt_t sys)
     memset(handle, 0, sizeof(struct memwin_s));
 
     handle->curswin = curswin;
-    handle->sys = sys;
+    handle->sys = params->sys;
     handle->curbase = 0;
 
     getmaxyx(curswin, handle->height, handle->width);
@@ -59,50 +62,52 @@ void memwin_refresh(memwin_t window)
     int index;
     int index2;
     int endbyte;
+    memwin_cxt_t handle = (memwin_cxt_t)window;
 
-    wmove(window->curswin, 0, 0);
+    wmove(handle->curswin, 0, 0);
 
-    /* TODO smaller lines for small windows? */
-    wprintw(window->curswin, "     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
+    /* TODO smaller lines for small handles? */
+    wprintw(handle->curswin, "     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
 
-    endbyte = window->curbase + ((window->height-1) * 16);
+    endbyte = handle->curbase + ((handle->height-1) * 16);
 
-    for(index = window->curbase; index < endbyte; ++index)
+    for(index = handle->curbase; index < endbyte; ++index)
     {
         if((index & 0x000F) == 0)
         {
-            wprintw(window->curswin, "%03X ", (index >> 4));
+            wprintw(handle->curswin, "%03X ", (index >> 4));
         }
 
-        wprintw(window->curswin, "%02X ", sys_peek_mem(window->sys, index));
+        wprintw(handle->curswin, "%02X ", sys_peek_mem(handle->sys, index));
 
         if((index & 0x000F) == 0x0F)
         {
-            wprintw(window->curswin, "\n");
+            wprintw(handle->curswin, "\n");
         }
     }
 
-    if(window->search_active)
+    if(handle->search_active)
     {
-        mvwprintw(window->curswin, window->height-1, window->width-6, "/%s\n", window->search_str);
+        mvwprintw(handle->curswin, handle->height-1, handle->width-6, "/%s\n", handle->search_str);
     }
 
-    wrefresh(window->curswin);
+    wrefresh(handle->curswin);
 }
 
 void memwin_processchar(memwin_t window, int input)
 {
+    memwin_cxt_t handle = (memwin_cxt_t)window;
     int c;
     int nibnum = 0;
-    uint16_t tmpbase = window->curbase;
+    uint16_t tmpbase = handle->curbase;
     int nibval;
 
     if(input == '/')
     {
-        memset(window->search_str, 0, sizeof(window->search_str));
-        window->search_active = true;
+        memset(handle->search_str, 0, sizeof(handle->search_str));
+        handle->search_active = true;
 
-        memwin_refresh(window);
+        memwin_refresh(handle);
 
         while(nibnum < 3 && ((c = getch()) != '\n'))
         {
@@ -111,28 +116,28 @@ void memwin_processchar(memwin_t window, int input)
                 break;
             }
 
-            window->search_str[nibnum] = c;
+            handle->search_str[nibnum] = c;
             nibval = hexchar_to_int(c);
 
             if(nibnum == 0)
-                window->curbase = 0;
+                handle->curbase = 0;
 
-            window->curbase |= (nibval << (4 * (3-nibnum)));
+            handle->curbase |= (nibval << (4 * (3-nibnum)));
 
-            log_print(lDEBUG, "memwin: get nim %d. val %04x\n", nibnum, window->curbase);
+            log_print(lDEBUG, "memwin: get nim %d. val %04x\n", nibnum, handle->curbase);
 
-            memwin_refresh(window);
+            memwin_refresh(handle);
 
             ++nibnum;
         }
 
         if(nibnum < 3)
         {
-            window->curbase = tmpbase;
+            handle->curbase = tmpbase;
         }
 
-        window->search_active = false;
-        memwin_refresh(window);
+        handle->search_active = false;
+        memwin_refresh(handle);
     }
 }
 

@@ -4,7 +4,7 @@
 #include <ncurses.h>
 #include "log.h"
 
-void curses_logwin_init(WINDOW *win);
-void curses_logwin_print(log_level_t level, const char *logstr);
+void *logwin_init(WINDOW *win, void *params);
+void logwin_print(log_level_t level, const char *logstr);
 
 #endif /* end of include guard: __LOGWIN_H__ */

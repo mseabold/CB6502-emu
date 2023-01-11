@@ -2,13 +2,16 @@
 
 static WINDOW *logwindow = NULL;
 
-void curses_logwin_init(WINDOW *win)
+void *logwin_init(WINDOW *win, void *params)
 {
     logwindow = win;
     scrollok(win, true);
+
+    /* Just return something non-null. We won't use it later. */
+    return (void *)1;
 }
 
-void curses_logwin_print(log_level_t level, const char *logstr)
+void logwin_print(log_level_t level, const char *logstr)
 {
     if(logwindow == NULL)
         return;

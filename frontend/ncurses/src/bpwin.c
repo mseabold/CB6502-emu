@@ -23,7 +23,9 @@ struct bpwin_s
     breakpoint_info_t *bp_info;
 };
 
-static void refresh_win(bpwin_t handle)
+typedef struct bpwin_s *bpwin_cxt_t;
+
+static void refresh_win(bpwin_cxt_t handle)
 {
     uint32_t index;
     uint32_t num_bps;
@@ -61,10 +63,11 @@ static void refresh_win(bpwin_t handle)
     wrefresh(handle->curswin);
 }
 
-bpwin_t bpwin_init(WINDOW *curswin, debug_t debugger)
+bpwin_t bpwin_init(WINDOW *curswin, void *params)
 {
     int height, width;
-    bpwin_t handle;
+    bpwin_cxt_t handle;
+    bpwin_params_t *bpparam = (bpwin_params_t *)params;
 
     getmaxyx(curswin, height, width);
 
@@ -83,14 +86,14 @@ bpwin_t bpwin_init(WINDOW *curswin, debug_t debugger)
     }
 
     handle->curswin = curswin;
-    handle->debugger = debugger;
+    handle->debugger = bpparam->debugger;
     handle->height = height;
     handle->active_bp = (uint32_t)-1;
 
     return handle;
 }
 
-static void get_input(bpwin_t handle)
+static void get_input(bpwin_cxt_t handle)
 {
     int ch;
     int y;
@@ -126,71 +129,72 @@ void bpwin_processchar(bpwin_t window, int input)
     char *endptr;
     long ival;
     debug_breakpoint_t bp;
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
 
     switch(input)
     {
         case 'b':
-            window->input_index = 0;
-            wmove(window->curswin, window->height - 1, 0);
-            wprintw(window->curswin, "b ");
-            wrefresh(window->curswin);
-            get_input(window);
-            wmove(window->curswin, window->height - 1, 0);
-            wprintw(window->curswin, "\n");
+            handle->input_index = 0;
+            wmove(handle->curswin, handle->height - 1, 0);
+            wprintw(handle->curswin, "b ");
+            wrefresh(handle->curswin);
+            get_input(handle);
+            wmove(handle->curswin, handle->height - 1, 0);
+            wprintw(handle->curswin, "\n");
 
             endptr = NULL;
 
-            ival = strtol(window->input_buffer, &endptr, 16);
+            ival = strtol(handle->input_buffer, &endptr, 16);
 
             if(endptr != NULL && *endptr == '\0' && ival >= 0 && ival < 0x10000)
             {
                 /* Whole string is valid 16 bit hex integer. */
-                debug_set_breakpoint_addr(window->debugger, &bp, (uint16_t)ival);
-                refresh_win(window);
+                debug_set_breakpoint_addr(handle->debugger, &bp, (uint16_t)ival);
+                refresh_win(handle);
             }
             else
             {
-                wmove(window->curswin, window->height - 1, 0);
-                wprintw(window->curswin, "Invalid address input\n");
-                wrefresh(window->curswin);
+                wmove(handle->curswin, handle->height - 1, 0);
+                wprintw(handle->curswin, "Invalid address input\n");
+                wrefresh(handle->curswin);
 
                 sleep(1);
 
-                wmove(window->curswin, window->height - 1, 0);
-                wprintw(window->curswin, "\n");
-                wrefresh(window->curswin);
+                wmove(handle->curswin, handle->height - 1, 0);
+                wprintw(handle->curswin, "\n");
+                wrefresh(handle->curswin);
             }
 
             break;
         case 'd':
-            window->input_index = 0;
-            wmove(window->curswin, window->height - 1, 0);
-            wprintw(window->curswin, "d ");
-            wrefresh(window->curswin);
-            get_input(window);
-            wmove(window->curswin, window->height - 1, 0);
-            wprintw(window->curswin, "\n");
+            handle->input_index = 0;
+            wmove(handle->curswin, handle->height - 1, 0);
+            wprintw(handle->curswin, "d ");
+            wrefresh(handle->curswin);
+            get_input(handle);
+            wmove(handle->curswin, handle->height - 1, 0);
+            wprintw(handle->curswin, "\n");
 
             endptr = NULL;
 
-            ival = strtol(window->input_buffer, &endptr, 16);
+            ival = strtol(handle->input_buffer, &endptr, 16);
 
             if(endptr != NULL && *endptr == '\0' && ival >= 0 && ival < 0x10000)
             {
-                debug_clear_breakpoint(window->debugger, (debug_breakpoint_t)ival);
-                refresh_win(window);
+                debug_clear_breakpoint(handle->debugger, (debug_breakpoint_t)ival);
+                refresh_win(handle);
             }
             else
             {
-                wmove(window->curswin, window->height - 1, 0);
-                wprintw(window->curswin, "Invalid breakpoint handle\n");
-                wrefresh(window->curswin);
+                wmove(handle->curswin, handle->height - 1, 0);
+                wprintw(handle->curswin, "Invalid breakpoint handle\n");
+                wrefresh(handle->curswin);
 
                 sleep(1);
 
-                wmove(window->curswin, window->height - 1, 0);
-                wprintw(window->curswin, "\n");
-                wrefresh(window->curswin);
+                wmove(handle->curswin, handle->height - 1, 0);
+                wprintw(handle->curswin, "\n");
+                wrefresh(handle->curswin);
             }
         default:
             break;
@@ -199,19 +203,25 @@ void bpwin_processchar(bpwin_t window, int input)
 
 void bpwin_set_active_bp(bpwin_t window, uint32_t bp)
 {
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
+
     log_print(lDEBUG, "Set %u bp active\n", bp);
-    window->active_bp = bp;
-    refresh_win(window);
+    handle->active_bp = bp;
+    refresh_win(handle);
 }
 
 void bpwin_clear_active_bp(bpwin_t window)
 {
-    window->active_bp = (uint32_t)-1;
-    refresh_win(window);
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
+
+    handle->active_bp = (uint32_t)-1;
+    refresh_win(handle);
 }
 
 void bpwin_destroy(bpwin_t window)
 {
-    free(window->bp_info);
-    free(window);
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
+
+    free(handle->bp_info);
+    free(handle);
 }

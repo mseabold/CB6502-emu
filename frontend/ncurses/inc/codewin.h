@@ -10,7 +10,7 @@
 /**
  * Code window handle.
  */
-typedef struct codewin_s *codewin_t;
+typedef void *codewin_t;
 
 /**
  * Debug Information for the Code Window.
@@ -56,6 +56,13 @@ typedef struct
 #define DBGOPT_SOURCE_PREFIX    0x00000001
 #define DBGOPT_SOURCE_REPLACE   0x00000002
 
+typedef struct
+{
+    debug_t debugger;
+    unsigned int num_dbginfo;
+    const codewin_dbginfo_t *dbginfo;
+} codewin_params_t;
+
 /**
  * Create a new code window context. While currently it only supports a single debug information structure being
  * supplied, the API supports future expansion. This would cover the use case of separate debug information
@@ -69,7 +76,7 @@ typedef struct
  *
  * @return The newly created code window context, or NULL if unable to be created.
  */
-codewin_t codewin_create(WINDOW *curswindow, debug_t debugger, unsigned int num_dbginfo, const codewin_dbginfo_t *dbginfo);
+codewin_t codewin_init(WINDOW *curswindow, void *params);
 
 /**
  * Destroy a previously created code window context.
@@ -84,7 +91,7 @@ void codewin_destroy(codewin_t window);
  * @param[in] window    The code window context
  * @param[in] input     The input character to process.
  */
-void codewin_processchar(codewin_t window, char input);
+void codewin_processchar(codewin_t window, int input);
 
 /**
  * Provide the handle to a breakpoint window for the code window to reference.

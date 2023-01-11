@@ -3,9 +3,9 @@
 
 #include <curses.h>
 
-typedef struct regwin_s *regwin_t;
+typedef void *regwin_t;
 
-regwin_t regwin_init(WINDOW *curswin);
+void *regwin_init(WINDOW *curswin, void *params);
 void regwin_refresh(regwin_t window);
 void regwin_destroy(regwin_t window);
 

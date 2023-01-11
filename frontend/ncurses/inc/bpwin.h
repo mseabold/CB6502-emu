@@ -5,9 +5,14 @@
 
 #include "debugger.h"
 
-typedef struct bpwin_s *bpwin_t;
+typedef void *bpwin_t;
 
-bpwin_t bpwin_init(WINDOW *curswin, debug_t debugger);
+typedef struct
+{
+    debug_t debugger;
+} bpwin_params_t;
+
+bpwin_t bpwin_init(WINDOW *curswin, void *params);
 void bpwin_processchar(bpwin_t window, int input);
 void bpwin_set_active_bp(bpwin_t window, uint32_t bp);
 void bpwin_clear_active_bp(bpwin_t window);
