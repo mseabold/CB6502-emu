@@ -19,8 +19,11 @@ typedef struct
     char *acia_sock;
     char *romfile;
     char *source_prefix;
+    char *labelfile;
     log_level_t log_level;
 } arguments_t;
+
+#define KEY_LABELS 0x100
 
 static struct argp_option options[] =
 {
@@ -28,6 +31,7 @@ static struct argp_option options[] =
     { "aciasock", 's', "SOCK", 0, "socket file for ACIA" },
     { "dbgprefix", 'p', "PREFIX", 0, "source prefix to append to source files in the debug information" },
     { "loglevel", 'l', "LEVEL", 0, "log level, 0=None ... 5=Error" },
+    { "labels", KEY_LABELS, "LABELFILE", 0, "VICES label file export from cc65" },
     { 0 }
 };
 
@@ -61,6 +65,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             }
 
             args->log_level = (log_level_t)val;
+            break;
+        case KEY_LABELS:
+            args->labelfile = arg;
             break;
         case ARGP_KEY_ARG:
             if(state->arg_num >= 1)
@@ -132,6 +139,7 @@ int main(int argc, char *argv[])
     args.acia_sock = ACIA_DEFAULT_SOCKNAME;
     args.dbgfile = NULL;
     args.source_prefix = NULL;
+    args.labelfile = NULL;
     args.log_level = lNONE;
 
     if(argp_parse(&argp, argc, argv, 0, 0, &args) != 0)
@@ -189,6 +197,11 @@ int main(int argc, char *argv[])
         cb6502_destroy();
 
         return 1;
+    }
+
+    if(args.labelfile)
+    {
+        debug_load_labels(debugger, args.labelfile);
     }
 
     /* Start the curses manager, getting the height and width of the screen. */

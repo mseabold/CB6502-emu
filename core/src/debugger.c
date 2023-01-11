@@ -13,8 +13,6 @@
 #include "log.h"
 
 #define MAX_BREAKPOINTS 8
-#define BREAKPOINT_VALID_MASK 0x80000000
-#define BREAKPOINT_ADDR_MASK  0x0000ffff
 #define FNV1a_OFFSET_BASIS 2166136261
 #define FNV1a_PRIME        16777619
 #define LABEL_TABLE_SIZE 1024
@@ -32,11 +30,18 @@ typedef struct dbg_label_s
     bool used;
 } dbg_label_t;
 
+typedef struct
+{
+    bool used;
+    uint16_t addr;
+    dbg_label_t *label;
+} breakpoint_t;
+
 struct debug_s
 {
     volatile bool sw_break;
     bool exit;
-    uint32_t breakpoints[MAX_BREAKPOINTS];
+    breakpoint_t breakpoints[MAX_BREAKPOINTS];
     sys_cxt_t syscxt;
     dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
 };
@@ -111,7 +116,7 @@ static bool dbg_eval_breakpoints(debug_t handle, uint16_t pc, debug_breakpoint_t
     uint8_t i;
     for(i=0; i<MAX_BREAKPOINTS; ++i)
     {
-        if(handle->breakpoints[i] & BREAKPOINT_VALID_MASK && (handle->breakpoints[i] & BREAKPOINT_ADDR_MASK) == pc)
+        if(handle->breakpoints[i].used && handle->breakpoints[i].addr == pc)
         {
             if(bphandle)
                 *bphandle = (debug_breakpoint_t)i;
@@ -184,9 +189,11 @@ bool debug_set_breakpoint_addr(debug_t handle, debug_breakpoint_t *breakpoint_ha
 
     for(index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        if(!(handle->breakpoints[index] & BREAKPOINT_VALID_MASK))
+        if(!handle->breakpoints[index].used)
         {
-            handle->breakpoints[index] = (uint32_t)addr | BREAKPOINT_VALID_MASK;
+            handle->breakpoints[index].used = true;
+            handle->breakpoints[index].addr = addr;
+            handle->breakpoints[index].label = NULL;
 
             *breakpoint_handle = (debug_breakpoint_t)index;
 
@@ -212,9 +219,11 @@ bool debug_set_breakpoint_label(debug_t handle, debug_breakpoint_t *breakpoint_h
 
     for(index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        if(!(handle->breakpoints[index] & BREAKPOINT_VALID_MASK))
+        if(!handle->breakpoints[index].used)
         {
-            handle->breakpoints[index] = (uint32_t)label_info->address | BREAKPOINT_VALID_MASK;
+            handle->breakpoints[index].used = true;
+            handle->breakpoints[index].addr = label_info->address;
+            handle->breakpoints[index].label = label_info;
 
             *breakpoint_handle = (debug_breakpoint_t)index;
 
@@ -229,13 +238,11 @@ void debug_clear_breakpoint(debug_t handle, debug_breakpoint_t breakpoint_handle
 {
     unsigned int index;
 
-    if(handle == NULL)
+    if(handle == NULL || breakpoint_handle >= MAX_BREAKPOINTS)
         return;
 
-    for(index = 0; index < MAX_BREAKPOINTS; ++index)
-    {
-        handle->breakpoints[index] &= ~BREAKPOINT_VALID_MASK;
-    }
+    handle->breakpoints[breakpoint_handle].used = false;
+    handle->breakpoints[breakpoint_handle].label = NULL;
 }
 
 void debug_get_breakpoints(debug_t handle, unsigned int *num_breakpoints, breakpoint_info_t *breakpoints, unsigned int *total_breakpoints)
@@ -250,16 +257,25 @@ void debug_get_breakpoints(debug_t handle, unsigned int *num_breakpoints, breakp
 
     for(index = 0, out_index = 0; index < MAX_BREAKPOINTS; ++index)
     {
-        if(handle->breakpoints[index] & BREAKPOINT_VALID_MASK)
+        if(handle->breakpoints[index].used)
         {
             if(total_breakpoints)
                 ++(*total_breakpoints);
 
             if(num_breakpoints && breakpoints && out_index < *num_breakpoints)
             {
-                breakpoints[out_index].address = handle->breakpoints[index] & BREAKPOINT_ADDR_MASK;
+                breakpoints[out_index].address = handle->breakpoints[index].addr;
                 breakpoints[out_index].handle = (debug_breakpoint_t)index;
-                breakpoints[out_index].label = NULL; //TODO
+
+                if(handle->breakpoints[index].label != NULL)
+                {
+                    breakpoints[out_index].label = handle->breakpoints[index].label->label;
+                }
+                else
+                {
+                    breakpoints[out_index].label = NULL;
+                }
+
                 ++out_index;
             }
         }

@@ -51,10 +51,17 @@ static void refresh_win(bpwin_cxt_t handle)
             wattroff(handle->curswin, A_REVERSE);
         }
 
-        wprintw(handle->curswin, "#%2u: 0x%04x\n", handle->bp_info[index].handle, handle->bp_info[index].address);
+        if(handle->bp_info[index].label != NULL)
+        {
+            wprintw(handle->curswin, "#%2u: %s\n", handle->bp_info[index].handle, handle->bp_info[index].label);
+        }
+        else
+        {
+            wprintw(handle->curswin, "#%2u: 0x%04x\n", handle->bp_info[index].handle, handle->bp_info[index].address);
+        }
     }
 
-    attroff(A_REVERSE);
+    wattroff(handle->curswin, A_REVERSE);
 
     for(index = 0; index < handle->height - 1; ++index)
     {
@@ -154,15 +161,22 @@ void bpwin_processchar(bpwin_t window, int input)
             }
             else
             {
-                wmove(handle->curswin, handle->height - 1, 0);
-                wprintw(handle->curswin, "Invalid address input\n");
-                wrefresh(handle->curswin);
+                if(debug_set_breakpoint_label(handle->debugger, &bp, handle->input_buffer))
+                {
+                    refresh_win(handle);
+                }
+                else
+                {
+                    wmove(handle->curswin, handle->height - 1, 0);
+                    wprintw(handle->curswin, "Invalid address/label\n");
+                    wrefresh(handle->curswin);
 
-                sleep(1);
+                    sleep(1);
 
-                wmove(handle->curswin, handle->height - 1, 0);
-                wprintw(handle->curswin, "\n");
-                wrefresh(handle->curswin);
+                    wmove(handle->curswin, handle->height - 1, 0);
+                    wprintw(handle->curswin, "\n");
+                    wrefresh(handle->curswin);
+                }
             }
 
             break;
