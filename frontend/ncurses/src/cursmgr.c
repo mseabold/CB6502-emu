@@ -483,6 +483,12 @@ void process_escape(int c)
 
         process_csi();
     }
+    else if(escapeidx == sizeof(escapebuf))
+    {
+        in_escape = false;
+        log_print(lNOTICE, "Escape sequence too long for buffer");
+        return;
+    }
 }
 void cursmgr_init(unsigned int *height, unsigned int *width)
 {
