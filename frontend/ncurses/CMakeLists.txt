@@ -33,7 +33,7 @@ target_link_libraries(fe_ncurses
 if(${CURSES_USE_WIDE})
     target_link_libraries(fe_ncurses
         PUBLIC
-            cursesw
+            ncursesw
     )
 
     target_compile_definitions(fe_ncurses
