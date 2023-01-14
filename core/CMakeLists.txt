@@ -7,7 +7,12 @@ add_library(cbemu STATIC
     src/via.c
     src/debugger.c
     src/log.c
+    src/acia_console.c
 )
+
+if(UNIX)
+    target_sources(cbemu PRIVATE src/acia_unix_sock.c)
+endif()
 
 target_include_directories(cbemu
     PUBLIC

@@ -14,6 +14,13 @@
 #include "sdcard.h"
 #include "at28c256.h"
 
+#ifdef __linux__
+#include "acia_unix_sock.h"
+#else
+#include "acia_console.h"
+#endif
+
+
 #include "bitbang_spi.h"
 
 #define ROM_SIZE 0x8000
@@ -96,6 +103,11 @@ bool cb6502_init(const char *rom_file, const char *acia_socket)
     int rom_fd;
     int read_result;
     unsigned int total_read;
+    const acia_trans_interface_t *acia_transport;
+    void *acia_transport_params;
+#ifdef __linux__
+    acia_unix_sock_params_t unix_params;
+#endif
 
     rom_fd = open(rom_file, O_RDONLY);
 
@@ -135,7 +147,17 @@ bool cb6502_init(const char *rom_file, const char *acia_socket)
         fprintf(stderr, "feck\n");
         return false;
     }
-    acia = acia_init((char *)acia_socket, sys);
+
+#ifdef __linux__
+    unix_params.sockname = acia_socket;
+    acia_transport = acia_unix_get_iface();
+    acia_transport_params = &unix_params;
+#else
+    acia_transport = acia_console_get_iface();
+    acia_transport_params = NULL;
+#endif
+
+    acia = acia_init(sys, acia_transport, acia_transport_params);
     if(acia == NULL)
     {
         fprintf(stderr, "Unable to initialize ACIA\n");
