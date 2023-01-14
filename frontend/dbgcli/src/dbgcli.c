@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 
 #include "dbgcli.h"
 #include "debugger.h"
@@ -54,6 +53,8 @@ static const dbg_cmd_t dbg_cmd_list[] = {
     { "examine", 'x', cmd_examine },
     { "finish", 'f', cmd_finish },
 };
+
+#define NUM_CMDS (sizeof(dbg_cmd_list)/sizeof(dbg_cmd_t))
 
 static void cmd_continue(uint32_t num_params, cmd_param_t *params)
 {
@@ -197,12 +198,57 @@ static void cmd_step(uint32_t num_params, cmd_param_t *params)
 {
     debug_step(cxt.debugger);
 }
-#define NUM_CMDS (sizeof(dbg_cmd_list)/sizeof(dbg_cmd_t))
 
-void ctrlc_handler(int signum)
+#if defined(_WIN32) || defined(__CYGWIN__)
+
+//TODO
+static void register_ctlc(void)
+{
+}
+
+static void unregister_ctlc(void)
+{
+}
+
+#elif defined(__linux__)
+
+#include <signal.h>
+
+static struct sigaction oldact;
+
+static void ctrlc_handler(int signum)
 {
     debug_break(cxt.debugger);
 }
+
+static void register_ctlc(void)
+{
+    struct sigaction sigact;
+
+    sigact.sa_handler = ctrlc_handler;
+    sigact.sa_flags = 0;
+    sigemptyset(&sigact.sa_mask);
+
+    sigaction(SIGINT, &sigact, &oldact);
+}
+
+static void unregister_ctlc(void)
+{
+    sigaction(SIGINT, &oldact, NULL);
+}
+
+#else
+
+/* Unknown platform, so just don't do anything. */
+static void register_ctlc(void)
+{
+}
+
+static void unregister_ctlc(void)
+{
+}
+
+#endif
 
 static const dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *params)
 {
@@ -279,8 +325,6 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
     uint32_t num_params;
     cmd_param_t params[MAX_PARAMS];
     const dbg_cmd_t *cmd = NULL;
-    struct sigaction sigact;
-    struct sigaction oldact;
 
     cxt.debugger = debug_init(system);
 
@@ -298,14 +342,10 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
         }
     }
 
-    sigact.sa_handler = ctrlc_handler;
-    sigact.sa_flags = 0;
-    sigemptyset(&sigact.sa_mask);
-
-    sigaction(SIGINT, &sigact, &oldact);
-
     cxt.exit = false;
     cxt.system = system;
+
+    register_ctlc();
 
     while(!cxt.exit)
     {
@@ -337,7 +377,7 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
             printf("Unknown command\n");
     }
 
-    sigaction(SIGINT, &oldact, NULL);
+    unregister_ctlc();
 
     return 0;
 }
