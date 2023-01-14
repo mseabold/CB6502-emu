@@ -1,4 +1,4 @@
-#include <curses.h>
+#include "curs_common.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

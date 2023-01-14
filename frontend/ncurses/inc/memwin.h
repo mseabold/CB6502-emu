@@ -1,7 +1,7 @@
 #ifndef __MEMWIN_H__
 #define __MEMWIN_H__
 
-#include <curses.h>
+#include "curs_common.h"
 
 #include "sys.h"
 

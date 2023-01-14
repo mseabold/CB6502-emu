@@ -1,7 +1,7 @@
 #ifndef __REGWIN_H__
 #define __REGWIN_H__
 
-#include <curses.h>
+#include "curs_common.h"
 
 typedef void *regwin_t;
 

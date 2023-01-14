@@ -1,7 +1,7 @@
 #ifndef __BPWIN_H__
 #define __BPWIN_H__
 
-#include <curses.h>
+#include "curs_common.h"
 
 #include "debugger.h"
 

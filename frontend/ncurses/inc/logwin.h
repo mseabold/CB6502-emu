@@ -1,7 +1,7 @@
 #ifndef __LOGWIN_H__
 #define __LOGWIN_H__
 
-#include <ncurses.h>
+#include "curs_common.h"
 #include "log.h"
 
 void *logwin_init(WINDOW *win, void *params);

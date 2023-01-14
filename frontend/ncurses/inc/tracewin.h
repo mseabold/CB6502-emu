@@ -1,7 +1,7 @@
 #ifndef __TRACEWIN_H__
 #define __TRACEWIN_H__
 
-#include <curses.h>
+#include "curs_common.h"
 
 #include "sys.h"
 

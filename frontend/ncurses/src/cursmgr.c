@@ -2,7 +2,7 @@
 #define _XOPEN_SOURCE_EXTENDED
 #endif
 
-#include <ncurses.h>
+#include "curs_common.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>

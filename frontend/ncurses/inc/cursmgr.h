@@ -1,7 +1,7 @@
 #ifndef __CURSMGR_H__
 #define __CURSMGR_H__
 
-#include <curses.h>
+#include "curs_common.h"
 #include <stdbool.h>
 
 #include "sys.h"

@@ -1,7 +1,7 @@
 #ifndef __DISASSEMBLYWIN_H__
 #define __DISASSEMBLYWIN_H__
 
-#include <ncurses.h>
+#include "curs_common.h"
 
 #include "debugger.h"
 #include "bpwin.h"
