@@ -12,6 +12,8 @@ add_executable(cbdbg cbdbg.c)
 
 target_link_libraries(cbdbg dbgcli cb6502)
 
+# Console application currently has linux dependencies (syslog, argp)
+if(UNIX)
 add_executable(cbconsole cbconsole.c)
 
 target_link_libraries(cbconsole
@@ -20,3 +22,4 @@ target_link_libraries(cbconsole
         fe_ncurses
         syslog_log
 )
+endif()
