@@ -103,7 +103,7 @@ typedef struct
 
 typedef enum
 {
-    USER_EXIT,
+    SUCCESS,
     ERR_WINDOW_DOES_NOT_FIT,
     ERR_WINDOW_OVERLAP,
     ERR_ON_WINDOW_INIT,
@@ -113,14 +113,35 @@ typedef enum
     ERR_MEMORY,
 } cursmgr_status_t;
 
+/**
+ * Callback prototype for a curses window resize event. This is called whenever
+ * the size of the curses window changes to allow the application to adjust its
+ * windows. If the application can modifiy the existing window list supplied to
+ * the curses manager, those changes will be applied. If not, it can return a
+ * new window list instead.
+ *
+ * @param[in] height The new screen height
+ * @param[in] width  The new screen width
+ * @param[in,out] num_windows Points to the number of current windows when called.
+ *                            Can be updated to a new number of windows of the resize
+ *                            event caused the list of displayable windows to change
+ * @param[in,out] windows     Points to the current window list when called.
+ *                            Can be updated to a new window list if the displayable windows
+ *                            have changed.
+ *
+ * @return @c true if the windows have changed and the curses manager should redraw them.
+ *         @c false if the windows remain the same
+ */
+typedef bool (*cursmgr_resize_t)(unsigned int height, unsigned int width, unsigned int *num_windows, const window_info_t **windows);
 
 /**
  * Initializes the curses manager and prepares the terminal for curses mode.
  *
  * @param[out] height   If supplied, will be populated with the height of the terminal screen.
  * @param[out] width    If supplied, will be populated with the width of the terminal screen.
+ * @param[in] resize_cb If supplied, will be called whenever the screen is resized
  */
-void cursmgr_init(unsigned int *height, unsigned int *width);
+void cursmgr_init(unsigned int *height, unsigned int *width, cursmgr_resize_t resize_cb);
 
 /**
  * Initializes and draw the supplied windows and starts the curses manager main loop

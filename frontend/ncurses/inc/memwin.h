@@ -15,6 +15,7 @@ typedef struct
 memwin_t memwin_init(WINDOW *curswin, void *params);
 void memwin_refresh(memwin_t window);
 void memwin_processchar(memwin_t window, int input);
+void memwin_resize(memwin_t window);
 void memwin_destroy(memwin_t window);
 
 #endif /* end of include guard: __MEMWIN_H__ */

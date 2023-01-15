@@ -126,12 +126,60 @@ void dbginfo_error(const cc65_parseerror *error)
     fprintf(stderr, "Dbg Parse Error: %c: %s %u:%u %s\n", error->type == CC65_ERROR ? 'E' : 'W', error->name, error->line, error->column, error->errormsg);
 }
 
+static void calc_sizes(unsigned int height, unsigned int width)
+{
+    unsigned int halfwidth;
+
+    /* Set up the window locations based on the screen size. */
+
+    /* First divide the screen in half (rounded up). */
+    halfwidth = (width + 1) / 2;
+
+    /* Code window is left half and top of screen, Leaving 7 lines on the bottom for
+     * breakpoints. */
+    windows[0].width = halfwidth;
+    windows[0].height = height - 7;
+
+    /* Breakpoint window is below code window. Note the border padding is intentionally
+     * overlapped. */
+    windows[1].y = windows[0].height - 1;
+    windows[1].height = 8;
+    windows[1].width = halfwidth;
+
+    /* Registers window is top-right, again overlapping the border padding on the left. */
+    windows[2].x = halfwidth - 1;
+    windows[2].width = width - halfwidth + 1;
+    windows[2].height = 5;
+
+    /* Memory watch window is below registers. */
+    windows[3].y = 4;
+    windows[3].x = halfwidth - 1;
+    windows[3].width = width - halfwidth + 1;
+    windows[3].height = height - 4;
+}
+
+bool cbconsole_resize(unsigned int height, unsigned int width, unsigned int *num_windows, const window_info_t **windows)
+{
+    /* Make sure the size is somewhat reasonable. If not, we'll invalidate the window list which
+     * will trigger the manager to exit. */
+    if(height <= 15)
+    {
+        *num_windows = 0;
+        *windows = NULL;
+    }
+    else
+    {
+        calc_sizes(height, width);
+    }
+
+    return true;
+}
+
 int main(int argc, char *argv[])
 {
     arguments_t args;
     codewin_dbginfo_t dbginfo;
     unsigned int height, width;
-    unsigned int halfwidth;
     debug_t debugger;
     sys_cxt_t sys;
 
@@ -210,40 +258,16 @@ int main(int argc, char *argv[])
     }
 
     /* Start the curses manager, getting the height and width of the screen. */
-    cursmgr_init(&height, &width);
+    cursmgr_init(&height, &width, cbconsole_resize);
 
     /* Make sure there is a resonable amount of space to show everything we need. */
     if(height > 15)
     {
-        /* Set up the window locations based on the screen size. */
-
-        /* First divide the screen in half (rounded up). */
-        halfwidth = (width + 1) / 2;
-
-        /* Code window is left half and top of screen, Leaving 7 lines on the bottom for
-         * breakpoints. */
-        windows[0].width = halfwidth;
-        windows[0].height = height - 7;
         codewin_params.debugger = debugger;
-
-        /* Breakpoint window is below code window. Note the border padding is intentionally
-         * overlapped. */
-        windows[1].y = windows[0].height - 1;
-        windows[1].height = 8;
-        windows[1].width = halfwidth;
         bpwin_params.debugger = debugger;
-
-        /* Registers window is top-right, again overlapping the border padding on the left. */
-        windows[2].x = halfwidth - 1;
-        windows[2].width = width - halfwidth + 1;
-        windows[2].height = 5;
-
-        /* Memory watch window is below registers. */
-        windows[3].y = 4;
-        windows[3].x = halfwidth - 1;
-        windows[3].width = width - halfwidth + 1;
-        windows[3].height = height - 4;
         memwin_params.sys = sys;
+
+        calc_sizes(height, width);
 
         /* Run the main curses manager loop. */
         cursmgr_run(4, windows);

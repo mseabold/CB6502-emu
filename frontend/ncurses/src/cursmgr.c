@@ -67,6 +67,7 @@ typedef struct
 typedef void *(*window_init_t)(WINDOW *curswin, void *params);
 typedef void (*window_processchar_t)(void *handle, int c);
 typedef void (*window_refresh_t)(void *handle);
+typedef void (*window_resize_t)(void *handle);
 typedef void (*window_destroy_t)(void *handle);
 
 typedef enum
@@ -174,10 +175,21 @@ static const window_refresh_t refreshfuncs[] =
 {
     regwin_refresh,
     memwin_refresh,
-    NULL,
-    NULL,
+    codewin_refresh,
+    bpwin_refresh,
     NULL,
     tracewin_refresh,
+    NULL
+};
+
+static const window_resize_t resizefuncs[] =
+{
+    NULL,
+    memwin_resize,
+    codewin_resize,
+    bpwin_refresh,
+    NULL,
+    NULL,
     NULL
 };
 
@@ -199,6 +211,7 @@ static bool in_escape = false;
 static char escapebuf[16];
 static unsigned int escapeidx;
 static unsigned int selected;
+static cursmgr_resize_t resize_callback;
 
 static void draw_line(int y, int x, int size, bool vert)
 {
@@ -490,47 +503,20 @@ void process_escape(int c)
         return;
     }
 }
-void cursmgr_init(unsigned int *height, unsigned int *width)
-{
-#ifdef CURSES_WIDE_CHAR
-    setlocale(LC_ALL, "");
-#endif
 
-    initscr();
-    cbreak();
-    noecho();
-    curs_set(0);
-
-    if(height)
-        *height = LINES;
-
-    if(width)
-        *width = COLS;
-
-    log_print(lDEBUG, "Window Size: %d, %d\n", LINES, COLS);
-}
-
-cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_windows)
+static cursmgr_status_t validate_windows(unsigned int _num_windows, const window_info_t *_windows)
 {
     unsigned int index;
     unsigned int index2;
-    cursmgr_status_t status;
-    int c;
-    bool exit;
 
-    num_windows = _num_windows;
-    windows = _windows;
-    selected = 0;
-
-    if(num_windows == 0 || windows == NULL)
+    if(_num_windows == 0 || _windows == NULL)
     {
         return ERR_INVALID_PARAMETER;
     }
 
-    /* First, validate all the windows. */
-    for(index = 0; index < num_windows; ++index)
+    for(index = 0; index < _num_windows; ++index)
     {
-        const window_info_t *window = &windows[index];
+        const window_info_t *window = &_windows[index];
 
         /* Make sure the type is valid so we can safely use it for lookup tables. */
         /* TODO Once custom windows have an interface, change this to > */
@@ -553,7 +539,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
             {
                 int bpindex = ((cursmgr_codewin_params_t *)window->parameters)->breakpoint_window;
 
-                if(bpindex < -1 || bpindex >= (int)num_windows)
+                if(bpindex < -1 || bpindex >= (int)_num_windows)
                 {
                     return ERR_INVALID_INDEX;
                 }
@@ -567,16 +553,23 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         /* Look for any window overlaps. Since this is a communative check, we only need to check
          * between this window and later indexes, as checks with earlier indexes have already been
          * performed. */
-        for(index2 = index + 1; index2 < num_windows; ++index2)
+        for(index2 = index + 1; index2 < _num_windows; ++index2)
         {
-            if(check_overlap(window, &windows[index2]))
+            if(check_overlap(window, &_windows[index2]))
             {
                 return ERR_WINDOW_OVERLAP;
             }
         }
     }
 
-    /* Windows are OK. Allocate an array to hold handles/runtime info for the windows. */
+    return SUCCESS;
+}
+
+static cursmgr_status_t initialize_windows(void)
+{
+    unsigned int index;
+    cursmgr_status_t status;
+
     handles = malloc(num_windows * sizeof(window_handle_t));
 
     if(handles == NULL)
@@ -584,9 +577,11 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         return ERR_MEMORY;
     }
 
-    status = USER_EXIT;
+    memset(handles, 0, sizeof(window_handle_t) * num_windows);
 
-    for(index = 0; index < num_windows && status == USER_EXIT; ++index)
+    status = SUCCESS;
+
+    for(index = 0; index < num_windows && status == SUCCESS; ++index)
     {
         const window_info_t *window = &windows[index];
         window_handle_t *handle = &handles[index];
@@ -621,6 +616,12 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         }
     }
 
+    if(status != SUCCESS)
+    {
+        free(handles);
+        return status;
+    }
+
     /* One more pass to populate the corners of the borders and labels as well
      * as handle some parameter mapping*/
     for(index = 0; index < num_windows; ++index)
@@ -647,13 +648,194 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         }
     }
 
-    exit = false;
+    return SUCCESS;
+}
+
+static void destroy_windows(void)
+{
+    unsigned int index;
+
+    /* Free the context for all the windows. */
+    for(index = 0; index < num_windows; ++index)
+    {
+        if(handles[index].window != NULL)
+            delwin(handles[index].window);
+
+        if(handles[index].handle != NULL && destroyfuncs[windows[index].type] != NULL)
+        {
+            destroyfuncs[windows[index].type](handles[index].handle);
+        }
+    }
+
+    free(handles);
+
+}
+
+static void resize_windows(void)
+{
+    unsigned int index;
+
+    /* First clear the screen. This allows the border drawing algorith to
+     * work correctly with corners. */
+    clear();
+    refresh();
+
+    /* Resize each window and draw borders. */
+    for(index = 0; index < num_windows; ++index)
+    {
+        const window_info_t *window = &windows[index];
+        const window_handle_t *handle = &handles[index];
+
+        wresize(handle->window, window->height-2, window->width-2);
+        mvwin(handle->window, window->y+1, window->x+1);
+    }
+
+    refresh();
+
+    for(index = 0; index < num_windows; ++index)
+    {
+        const window_info_t *window = &windows[index];
+        const window_handle_t *handle = &handles[index];
+
+        if(!(window->flags & NO_BORDER))
+        {
+            draw_border(window);
+        }
+
+        if(resizefuncs[window->type] != NULL)
+        {
+            resizefuncs[window->type](handle->handle);
+        }
+
+    }
+
+    refresh();
+
+    /* Now, go back and draw corners and labels. */
+    for(index = 0; index < num_windows; ++index)
+    {
+        const window_info_t *window = &windows[index];
+
+        if(!(window->flags & NO_BORDER))
+        {
+            draw_corners(window);
+        }
+
+        if(!(window->flags & NO_LABEL))
+        {
+            draw_label(window, selected == index);
+        }
+    }
+}
+
+static cursmgr_status_t handle_resize(void)
+{
+    const window_info_t *tmpwindows = windows;
+    unsigned int tmpnum_windows = num_windows;
+    cursmgr_status_t status;
+
+    if(resize_callback == NULL || !resize_callback(LINES, COLS, &tmpnum_windows, &tmpwindows))
+    {
+        /* Nothing to do. */
+        return SUCCESS;
+    }
+
+    /* Make sure the windows are still valid. */
+    status = validate_windows(tmpnum_windows, tmpwindows);
+
+    if(status != SUCCESS)
+    {
+        return status;
+    }
+
+    if(tmpnum_windows != num_windows || tmpwindows != windows)
+    {
+        /* Window list has changed. Free the existing windows and re-initialize
+         * the new list. */
+        destroy_windows();
+
+        clear();
+        refresh();
+
+        num_windows = tmpnum_windows;
+        windows = tmpwindows;
+
+        return initialize_windows();
+    }
+    else
+    {
+        resize_windows();
+    }
+
+    return SUCCESS;
+}
+
+void cursmgr_init(unsigned int *height, unsigned int *width, cursmgr_resize_t resize_cb)
+{
+#ifdef CURSES_WIDE_CHAR
+    setlocale(LC_ALL, "");
+#endif
+
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(0);
+
+    if(height)
+        *height = LINES;
+
+    if(width)
+        *width = COLS;
+
+    resize_callback = resize_cb;
+}
+
+cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_windows)
+{
+    unsigned int index;
+    unsigned int index2;
+    cursmgr_status_t status;
+    int c;
+    bool exit;
+
+    num_windows = _num_windows;
+    windows = _windows;
+    selected = 0;
+
+    /* First, validate all the windows. */
+    status = validate_windows(num_windows, windows);
+
+    if(status != SUCCESS)
+    {
+        return status;
+    }
+
+    status = initialize_windows();
+
+
+    if(status == SUCCESS)
+    {
+        exit = false;
+    }
+    else
+    {
+        exit = true;
+    }
 
     while(!exit)
     {
         c = getch();
 
-        if(in_escape || c == 0x1b)
+        if(c == KEY_RESIZE)
+        {
+            status = handle_resize();
+
+            if(status != SUCCESS)
+            {
+                break;
+            }
+        }
+        else if(in_escape || c == 0x1b)
         {
             process_escape(c);
             continue;
@@ -680,19 +862,7 @@ cursmgr_status_t cursmgr_run(unsigned int _num_windows, const window_info_t *_wi
         }
     }
 
-    /* Free the context for all the windows. */
-    for(index = 0; index < num_windows; ++index)
-    {
-        if(handles[index].window != NULL)
-            delwin(handles[index].window);
-
-        if(handles[index].handle != NULL && destroyfuncs[windows[index].type] != NULL)
-        {
-            destroyfuncs[windows[index].type](handles[index].handle);
-        }
-    }
-
-    free(handles);
+    destroy_windows();
 
     return status;
 }

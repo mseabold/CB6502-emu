@@ -100,4 +100,7 @@ void codewin_processchar(codewin_t window, int input);
  */
 void codewin_set_bpwin(codewin_t window, bpwin_t breakpoint_window);
 
+void codewin_refresh(codewin_t window);
+void codewin_resize(codewin_t window);
+
 #endif /* end of include guard: __DISASSEMBLYWIN_H__ */

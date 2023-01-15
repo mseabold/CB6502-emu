@@ -146,3 +146,9 @@ void memwin_destroy(memwin_t window)
     free(window);
 }
 
+void memwin_resize(memwin_t window)
+{
+    memwin_cxt_t handle = (memwin_cxt_t)window;
+
+    getmaxyx(handle->curswin, handle->height, handle->width);
+}

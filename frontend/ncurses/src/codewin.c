@@ -78,6 +78,7 @@ struct codewin_s
     debug_t debugger;
     bpwin_t bpwin;
     uint16_t curpc;
+    unsigned int line_info_size;
     line_info_t *line_info;
     bool line_info_valid;
     display_mode_t mode;
@@ -974,6 +975,8 @@ codewin_t codewin_init(WINDOW *curswindow, void *p)
         return NULL;
     }
 
+    handle->line_info_size = height;
+
     handle->curswin = curswindow;
     handle->debugger = params->debugger;
     handle->height = height;
@@ -1068,4 +1071,30 @@ void codewin_set_bpwin(codewin_t window, bpwin_t breakpoint_window)
 {
     codewin_cxt_t handle = (codewin_cxt_t)window;
     handle->bpwin = breakpoint_window;
+}
+
+void codewin_refresh(codewin_t window)
+{
+    codewin_cxt_t handle = (codewin_cxt_t)window;
+
+    refresh_state(handle);
+}
+
+void codewin_resize(codewin_t window)
+{
+    codewin_cxt_t handle = (codewin_cxt_t)window;
+
+    getmaxyx(handle->curswin, handle->height, handle->width);
+
+    if(handle->line_info_size < handle->height)
+    {
+        handle->line_info = realloc(handle->line_info, sizeof(line_info_t) * handle->height);
+
+        /* Refresh doesn't currently return a state, so just assert. */
+        assert(handle->line_info != NULL);
+
+        handle->line_info_size = handle->height;
+    }
+
+    handle->line_info_valid = false;
 }

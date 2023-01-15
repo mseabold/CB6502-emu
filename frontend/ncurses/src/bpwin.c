@@ -232,6 +232,20 @@ void bpwin_clear_active_bp(bpwin_t window)
     refresh_win(handle);
 }
 
+void bpwin_refresh(bpwin_t window)
+{
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
+
+    refresh_win(handle);
+}
+
+void bpwin_resize(bpwin_t window)
+{
+    int _w;
+    bpwin_cxt_t handle = (bpwin_cxt_t)window;
+    getmaxyx(handle->curswin, handle->height, _w);
+}
+
 void bpwin_destroy(bpwin_t window)
 {
     bpwin_cxt_t handle = (bpwin_cxt_t)window;
