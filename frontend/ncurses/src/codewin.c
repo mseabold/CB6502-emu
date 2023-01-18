@@ -61,7 +61,6 @@ typedef struct
     unsigned int numlines;
     char *data;
     char **lineptrs;
-    const cc65_lineinfo *lineinfo;
 } fileinfo_t;
 
 typedef struct
@@ -246,11 +245,6 @@ static void free_fileinfo(codewin_cxt_t handle, fileinfo_t *fileinfo)
         free(fileinfo->lineptrs);
     }
 
-    if(fileinfo->lineinfo != NULL)
-    {
-        cc65_free_lineinfo(handle->dbginfo.handle, fileinfo->lineinfo);
-    }
-
     memset(fileinfo, 0, sizeof(fileinfo_t));
 }
 
@@ -425,28 +419,13 @@ static bool load_file(codewin_cxt_t handle, unsigned int fileid, unsigned int fi
         }
     }
 
-    /* Finally, get the debug line information for the file.
-     * NOTE: While normally, we could just query this information when necessary
-     *       and let the dbginfo module own the memory, the multiple-line-info quirk
-     *       described elsewhere means we are not able to actually query *all* of the
-     *       line information based on source/line number. We does this exact query when
-     *       evaluating macro expansions. Instead, we store our own copy of this information
-     *       so that we can search and query on our own terms. */
-    fileinfo->lineinfo = cc65_line_bysource(handle->dbginfo.handle, fileinfo->fileid);
-
-    if(fileinfo->lineinfo == NULL)
-    {
-        free_fileinfo(handle, fileinfo);
-        return false;
-    }
-
     /* Store the index we allocated for reference. */
     fileinfo->index = fileindex;
 
     return true;
 }
 
-/* Attempt to found and (optionally) load the specified file. If set_active is
+/* Attempt to find and (optionally) load the specified file. If set_active is
  * true, the fileinfo will be marked as active in the file pool, indicating that
  * is actively being displayed on screen and cannot be culled. */
 static fileinfo_t *get_file_info(codewin_cxt_t handle, unsigned int fileid, bool load, bool set_active)
@@ -478,56 +457,6 @@ static fileinfo_t *get_file_info(codewin_cxt_t handle, unsigned int fileid, bool
     }
 
     return info;
-}
-
-/* Recursive binary search function for locating debug line info for a given line
- * number in a source file. */
-static int find_line_index_r(const fileinfo_t *fileinfo, unsigned int line, int low, int high)
-{
-    unsigned int check;
-    unsigned int checkline;
-
-    if(high < low)
-    {
-        return -1;
-    }
-
-    check = (low + high) / 2;
-    checkline = fileinfo->lineinfo->data[check].source_line;
-
-    if(line < checkline)
-    {
-        return find_line_index_r(fileinfo, line, low, check-1);
-    }
-    else if(line > checkline)
-    {
-        return find_line_index_r(fileinfo, line, check+1, high);
-    }
-    else
-    {
-        return check;
-    }
-}
-
-/* Top level search function for debug line info based on line number in a source.
- * If there are multiple line info entries for the given line number, this function
- * is guaranteed to return the first entry index that matches. */
-static int find_line_index(const fileinfo_t *fileinfo, unsigned int line)
-{
-    int index;
-
-    index = find_line_index_r(fileinfo, line, 0, fileinfo->lineinfo->count-1);
-
-    /* If any previous entries also match, select them instead.
-     * NOTE: This is possible due to a quirk within the cc65 debug info generation.
-     *       Any macro that is defined in a header will get a uniqie "line" entry in
-     *       the debug file for each source file that includes the header. */
-    while(index > 0 && fileinfo->lineinfo->data[index-1].source_line == line)
-    {
-        --index;
-    }
-
-    return index;
 }
 
 /*
@@ -592,23 +521,21 @@ static bool span_from_line_addr(codewin_cxt_t handle, const fileinfo_t *fileinfo
     const cc65_spaninfo *spaninfo;
     unsigned int index, index2;
     bool found = false;
-    int lineindex;
+    const cc65_lineinfo *lineinfo;
 
-    lineindex = find_line_index(fileinfo, line);
+    lineinfo = cc65_line_bynumber(handle->dbginfo.handle, fileinfo->fileid, line);
 
-    if(lineindex < 0)
+    if(lineinfo == NULL)
     {
         /* This is relatively normal for lines such as comments or empty lines. */
         log_print(lDEBUG, "Unable to find line information for file %u line %u\n", fileinfo->fileid, line);
         return false;
     }
 
-    /* There may be multiple line info entries for a given source/line combo (see above comment).
-     * The info is sorted by line, and find_line_index() gives us the index of the first matching entry.
-     * Loop through the line info for every subsequent index that references the same line. */
-    for(index = lineindex; index < fileinfo->lineinfo->count && fileinfo->lineinfo->data[index].source_line == line; ++index)
+    /* There may be multiple line info entries for a given source/line combo (see above comment). */
+    for(index = 0; index < lineinfo->count; ++index)
     {
-        spaninfo = cc65_span_byline(handle->dbginfo.handle, fileinfo->lineinfo->data[index].line_id);
+        spaninfo = cc65_span_byline(handle->dbginfo.handle, lineinfo->data[index].line_id);
 
         if(spaninfo != NULL)
         {
@@ -626,9 +553,11 @@ static bool span_from_line_addr(codewin_cxt_t handle, const fileinfo_t *fileinfo
         }
         else
         {
-            log_print(lINFO, "Unable to find span from line id: %u\n", fileinfo->lineinfo->data[index].line_id);
+            log_print(lINFO, "Unable to find span from line id: %u\n", lineinfo->data[index].line_id);
         }
     }
+
+    cc65_free_lineinfo(handle->dbginfo.handle, lineinfo);
 
     return found;
 }
