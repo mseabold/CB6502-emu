@@ -612,7 +612,7 @@ static void fill_from_file(codewin_cxt_t handle, unsigned int *line, unsigned in
      *      - We reached the end of a valid parent span
      *      - An error caused us to switch to dissassembly mode
      */
-    while(*line < handle->height && sourceline < fileinfo->numlines
+    while(*line < handle->height && sourceline < fileinfo->numlines + 1
             && (parent == NULL || *addr <= parent->span_end)
             && handle->mode == SOURCE)
     {
