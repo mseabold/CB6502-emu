@@ -588,6 +588,9 @@ static void fill_from_file(codewin_cxt_t handle, unsigned int *line, unsigned in
     cc65_spandata spandata;
     unsigned int index;
     unsigned int drawline;
+    unsigned int startaddr;
+    const cc65_lineinfo *lineinfo;
+    const cc65_spaninfo *spaninfo;
 
     fileinfo = get_file_info(handle, source_id, true, true);
 
@@ -622,8 +625,49 @@ static void fill_from_file(codewin_cxt_t handle, unsigned int *line, unsigned in
         handle->line_info[drawline].depth = depth;
         handle->line_info[drawline].flags = 0;
 
+        /* The initial call gives us a NULL addr. This is so that we can fill in the addresses
+         * of padding lines ahead of the current PC line. */
+        if(addr == NULL)
+        {
+            /* This should only be null on the initial call when depth = 0. This means that
+             * there *should* only be a single line that matches this line number. We'll check
+             * all the potential results. */
+            lineinfo = cc65_line_bynumber(handle->dbginfo.handle, source_id, sourceline);
+
+            if(lineinfo != NULL)
+            {
+                for(index = 0; index < lineinfo->count && addr == NULL; ++index)
+                {
+                    if(lineinfo->data[index].count != depth)
+                    {
+                        continue;
+                    }
+
+                    spaninfo = cc65_span_byline(handle->dbginfo.handle, lineinfo->data[index].line_id);
+
+                    if(spaninfo != NULL)
+                    {
+                        if(spaninfo->count > 1)
+                        {
+                            /* This shouldn't ever really happen. */
+                            log_print(lNOTICE, "More than one span for line\n");
+                        }
+                        else if(spaninfo->count > 0)
+                        {
+                            startaddr = spaninfo->data[0].span_start;
+                            addr = &startaddr;
+                        }
+
+                        cc65_free_spaninfo(handle->dbginfo.handle, spaninfo);
+                    }
+                }
+
+                cc65_free_lineinfo(handle->dbginfo.handle, lineinfo);
+            }
+        }
+
         /* Find the span information for this line. */
-        if(span_from_line_addr(handle, fileinfo, sourceline, *addr, &spandata))
+        if(addr != NULL && span_from_line_addr(handle, fileinfo, sourceline, *addr, &spandata))
         {
             handle->line_info[drawline].addr = spandata.span_start;
 
@@ -656,9 +700,6 @@ static void fill_from_file(codewin_cxt_t handle, unsigned int *line, unsigned in
  * debug information. */
 static bool refill_source(codewin_cxt_t handle, int top_padding)
 {
-    unsigned int maxdepth;
-    const cc65_spaninfo *spaninfo;
-    const cc65_lineinfo *lineinfo;
     unsigned int line;
     unsigned int index;
     unsigned int index2;
@@ -682,7 +723,7 @@ static bool refill_source(codewin_cxt_t handle, int top_padding)
 
     /* Start filling the screen from the top-level source line determined and saved
      * in curline. Starting depth is 0 and there is no parent. */
-    fill_from_file(handle, &line, handle->curline.source_id, sourceline, 0, &addr, NULL);
+    fill_from_file(handle, &line, handle->curline.source_id, sourceline, 0, NULL, NULL);
 
     if(handle->mode == DISASSEMBLY)
     {
@@ -699,6 +740,7 @@ static bool refill_source(codewin_cxt_t handle, int top_padding)
     {
         handle->line_info[index].depth = 0;
         handle->line_info[index].line.ptr = (char *)EMPTY_LINE;
+        handle->line_info[index].flags |= LINE_INFO_FLAG_NO_ADDR;
     }
 
     wclear(handle->curswin);
