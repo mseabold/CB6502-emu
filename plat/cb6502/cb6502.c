@@ -84,7 +84,7 @@ static void memory_write(uint16_t address, uint8_t value)
     }
     else if(ADDR_IN_REGION(address, ROM_BASE, ROM_SIZE))
     {
-        at28c256_write(rom, address-ROM_BASE, value);
+        at28c256_write(rom, address-0x8000, value);
     }
 }
 
