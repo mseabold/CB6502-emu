@@ -13,6 +13,8 @@ add_library(cbemu STATIC
 if(UNIX)
     target_sources(cbemu PRIVATE src/acia_unix_sock.c)
     target_sources(cbemu PRIVATE os/linux/src/os_signal_linux.c)
+elseif(WIN32)
+    target_sources(cbemu PRIVATE os/windows/src/os_signal_windows.c)
 endif()
 
 target_include_directories(cbemu
