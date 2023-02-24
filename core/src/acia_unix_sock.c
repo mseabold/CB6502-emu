@@ -29,6 +29,7 @@ struct acia_unix_s
     int server_sock;
     int client_sock;
     int eventfd;
+    bool shutdown;
 
     pthread_t thread_handle;
     pthread_mutex_t lock;
@@ -37,11 +38,10 @@ struct acia_unix_s
 
 typedef struct acia_unix_s *acia_unix_t;
 
-static bool process_client(acia_unix_t cxt)
+static void process_client(acia_unix_t cxt)
 {
     int result;
     bool done;
-    bool shutdown = false;
 
     struct pollfd fds[2];
 
@@ -63,7 +63,6 @@ static bool process_client(acia_unix_t cxt)
                 /* Shutdown was signalled, so exit the client loop and signal the main
                  * thread loop to shutdown as well. */
                 done = true;
-                shutdown = true;
             }
             else
             {
@@ -76,12 +75,19 @@ static bool process_client(acia_unix_t cxt)
 
                     avail = RING_BUFFER_SIZE - cxt->num_bytes;
 
-                    while(avail == 0)
+                    while(avail == 0 && !cxt->shutdown)
                     {
                         pthread_cond_wait(&cxt->cond, &cxt->lock);
+                        avail = RING_BUFFER_SIZE - cxt->num_bytes;
                     }
 
                     pthread_mutex_unlock(&cxt->lock);
+
+                    if(cxt->shutdown)
+                    {
+                        done = true;
+                        continue;
+                    }
 
                     /* We have some bytes available. It's safe to use this count unlocked now,
                      * since the reader can only make it larger. If the available space wraps
@@ -112,6 +118,11 @@ static bool process_client(acia_unix_t cxt)
                         done = true;
                     }
                 }
+                else if(fds[0].revents != 0)
+                {
+                    /* Error or hangup. */
+                    done = true;
+                }
             }
         }
         else if(result < 0)
@@ -120,7 +131,10 @@ static bool process_client(acia_unix_t cxt)
         }
     }
 
-    return shutdown;
+    if(!cxt->shutdown)
+    {
+        log_print(lDEBUG, "Unix Sock client closed.\n");
+    }
 }
 
 static void *read_thread(void *params)
@@ -136,7 +150,7 @@ static void *read_thread(void *params)
 
     done = false;
 
-    while(!done)
+    while(!done && !cxt->shutdown)
     {
         fds[0].fd = cxt->server_sock;
         fds[0].events = POLLIN;
@@ -161,13 +175,12 @@ static void *read_thread(void *params)
                 {
                     /* Handle the new client until it is closed or a shutdown signal
                      * is received. Returns true if a shutdown was received. */
-                    done = process_client(cxt);
+                    process_client(cxt);
 
                     /* Close the client socket since we are done. Do this atomically with
                      * invalidating the handle so that another thread won't try to write to
                      * it while we're invalidating. */
                     pthread_mutex_lock(&cxt->lock);
-
                     close(cxt->client_sock);
                     cxt->client_sock = -1;
 
@@ -347,7 +360,7 @@ static void acia_unix_write(void *handle, uint8_t data)
     {
         /* We consider this transport "unreliable", so don't bother to check the result
          * if write() */
-        (void)write(cxt->client_sock, &data, 1);
+        (void)send(cxt->client_sock, &data, 1, MSG_NOSIGNAL);
     }
 
     pthread_mutex_unlock(&cxt->lock);
@@ -360,8 +373,15 @@ static void acia_unix_cleanup(void *handle)
     if(cxt == NULL)
         return;
 
+    pthread_mutex_lock(&cxt->lock);
+
+    cxt->shutdown = true;
+    pthread_cond_signal(&cxt->cond);
+
     /* Signal the thread to shutdown. */
     eventfd_write(cxt->eventfd, 1);
+
+    pthread_mutex_unlock(&cxt->lock);
 
     /* Wait for the thread to finish. */
     pthread_join(cxt->thread_handle, NULL);
