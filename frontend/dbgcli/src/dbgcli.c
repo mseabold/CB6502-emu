@@ -5,6 +5,7 @@
 #include "dbgcli.h"
 #include "debugger.h"
 #include "cpu.h"
+#include "os_signal.h"
 
 #define CMD_DELIM " "
 #define MAX_PARAMS 10
@@ -199,57 +200,6 @@ static void cmd_step(uint32_t num_params, cmd_param_t *params)
     debug_step(cxt.debugger);
 }
 
-#if defined(_WIN32) || defined(__CYGWIN__)
-
-//TODO
-static void register_ctlc(void)
-{
-}
-
-static void unregister_ctlc(void)
-{
-}
-
-#elif defined(__linux__)
-
-#include <signal.h>
-
-static struct sigaction oldact;
-
-static void ctrlc_handler(int signum)
-{
-    debug_break(cxt.debugger);
-}
-
-static void register_ctlc(void)
-{
-    struct sigaction sigact;
-
-    sigact.sa_handler = ctrlc_handler;
-    sigact.sa_flags = 0;
-    sigemptyset(&sigact.sa_mask);
-
-    sigaction(SIGINT, &sigact, &oldact);
-}
-
-static void unregister_ctlc(void)
-{
-    sigaction(SIGINT, &oldact, NULL);
-}
-
-#else
-
-/* Unknown platform, so just don't do anything. */
-static void register_ctlc(void)
-{
-}
-
-static void unregister_ctlc(void)
-{
-}
-
-#endif
-
 static const dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t *params)
 {
     const dbg_cmd_t *ret = NULL;
@@ -317,6 +267,16 @@ static const dbg_cmd_t *parse_cmd(char *input, uint32_t *num_params, cmd_param_t
     return ret;
 }
 
+static void dbgcli_ctrlc_handler(os_signal_t signal, void *userdata)
+{
+    if(userdata == NULL || signal != OS_CTRLC)
+    {
+        return;
+    }
+
+    debug_break((debug_t)userdata);
+}
+
 int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
 {
     char disbuf[256];
@@ -325,6 +285,7 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
     uint32_t num_params;
     cmd_param_t params[MAX_PARAMS];
     const dbg_cmd_t *cmd = NULL;
+    os_sigcb_t sighandle;
 
     cxt.debugger = debug_init(system);
 
@@ -345,7 +306,7 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
     cxt.exit = false;
     cxt.system = system;
 
-    register_ctlc();
+    sighandle = os_register_signal(OS_CTRLC, dbgcli_ctrlc_handler, cxt.debugger);
 
     while(!cxt.exit)
     {
@@ -377,7 +338,10 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
             printf("Unknown command\n");
     }
 
-    unregister_ctlc();
+    if(sighandle != OS_INVALID_HANDLE)
+    {
+        os_unregister_signal(sighandle);
+    }
 
     return 0;
 }

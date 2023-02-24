@@ -9,6 +9,7 @@
 #include "codewin.h"
 #include "cpu.h"
 #include "log.h"
+#include "os_signal.h"
 
 #define OP_BUF_SIZE 64
 #define FILE_POOL_SIZE 8
@@ -82,6 +83,7 @@ struct codewin_s
     bool line_info_valid;
     display_mode_t mode;
     int hiline;
+    os_sigcb_t sighandle;
 
     /* State for dbginfo-based code display. */
     bool dbginfo_valid;
@@ -98,6 +100,18 @@ static const char EMPTY_LINE[] = "~";
 /* Forward declared some common functions. */
 static int find_addr_on_screen(codewin_cxt_t handle, uint16_t addr);
 static void refresh_state(codewin_cxt_t handle);
+
+static void codewin_ctrlc_handler(os_signal_t signal, void *userdata)
+{
+    codewin_cxt_t cxt = (codewin_cxt_t )userdata;
+
+    if(cxt == NULL || signal != OS_CTRLC)
+    {
+        return;
+    }
+
+    debug_break(cxt->debugger);
+}
 
 /**** Functions related to Disassembly Mode ****/
 
@@ -946,6 +960,13 @@ codewin_t codewin_init(WINDOW *curswindow, void *p)
         return NULL;
     }
 
+    handle->sighandle = os_register_signal(OS_CTRLC, codewin_ctrlc_handler, handle);
+
+    if(handle->sighandle == OS_INVALID_HANDLE)
+    {
+        log_print(lWARNING, "Unable to register ctrl-c handler");
+    }
+
     handle->line_info_size = height;
 
     handle->curswin = curswindow;
@@ -982,6 +1003,12 @@ void codewin_destroy(codewin_t window)
     {
         free_fileinfo(handle, &handle->filepool.files[index]);
     }
+
+    if(handle->sighandle != OS_INVALID_HANDLE)
+    {
+        os_unregister_signal(handle->sighandle);
+    }
+
     free(handle->line_info);
     free(handle);
 }
