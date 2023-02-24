@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "sdcard.h"
+#include "log.h"
 
 #define CMD0 0x40
 #define CMD8 0x48
@@ -31,12 +32,6 @@ typedef enum {
     CRC2
 } cmd_state_t;
 
-#ifdef DEBUG
-#define DEBUG_PRINT DEBUG_PRINT
-#else
-#define DEBUG_PRINT(_x, ...) ((void)0)
-#endif
-
 typedef struct sdcard_context_s
 {
     bool init;
@@ -59,7 +54,8 @@ static sdcard_context_t cxt;
 static void handle_cmd(void)
 {
     off_t block;
-    DEBUG_PRINT("Handle cmd: %u, 0x%02x\n", cxt.card_state, cxt.cmd_buf[0]);
+    int r;
+    log_print(lDEBUG, "Handle cmd: %u, 0x%02x\n", cxt.card_state, cxt.cmd_buf[0]);
     switch(cxt.card_state)
     {
         case SD_MODE:
@@ -96,19 +92,23 @@ static void handle_cmd(void)
                     cxt.out_reg = 0x00;
                     block = ((uint32_t)cxt.cmd_buf[1] << 24) | ((uint32_t)cxt.cmd_buf[2] << 16) | ((uint32_t)cxt.cmd_buf[3] << 8) | (cxt.cmd_buf[4]);
                     block *= 512;
-                    DEBUG_PRINT("Read block: %lu, 0x%08x\n", block, (uint32_t)block);
+                    log_print(lDEBUG, "Read block: %lu, 0x%08x\n", block, (uint32_t)block);
                     if(lseek(cxt.image_fd, block, SEEK_SET) < 0)
                     {
-                        fprintf(stderr, "Seek failure: %s\n", strerror(errno));
+                        log_print(lERROR, "Seek failure: %s\n", strerror(errno));
                         cxt.out_reg = 0x20;
                         cxt.cmd_state = R1;
                     }
 
-                    if(read(cxt.image_fd, cxt.sector_buf, 512) < 0)
+                    if((r = read(cxt.image_fd, cxt.sector_buf, 512)) < 0)
                     {
-                        fprintf(stderr, "Read failure: %s\n", strerror(errno));
+                        log_print(lERROR, "Read failure: %s\n", strerror(errno));
                         cxt.out_reg = 0x20;
                         cxt.cmd_state = R1;
+                    }
+                    else if(r != 512)
+                    {
+                        log_print(lWARNING, "Incomplete page read of %d bytes\n", r);
                     }
                     break;
                 defaut:
@@ -217,7 +217,7 @@ uint8_t sdcard_spi_get(void)
     switch(cxt.cmd_state)
     {
         case R1:
-            DEBUG_PRINT("Return to idle\n");
+            log_print(lDEBUG, "Return to idle\n");
             cxt.out_reg = 0xff;
             cxt.cmd_state = IDLE;
             break;
@@ -258,7 +258,7 @@ uint8_t sdcard_spi_get(void)
         case CRC2:
             cxt.out_reg = 0x00;
             cxt.cmd_state = IDLE;
-            DEBUG_PRINT("Block done\n");
+            log_print(lDEBUG, "Block done\n");
             break;
         default:
             cxt.out_reg = 0xff;
