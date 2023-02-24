@@ -2,6 +2,7 @@
  * (c) 2022 Matt Seabold
  */
 #include "at28c256.h"
+#include "log.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -90,7 +91,6 @@ void at28c256_write(at28c256_t handle, uint16_t addr, uint8_t val)
             handle->page_addr = addr & ADDR_PAGE_MASK;
 
             handle->write_state = BYTE_LOAD;
-            handle->state_elapsed = 0;
 
             /* Intentional fall through. */
 
@@ -100,6 +100,7 @@ void at28c256_write(at28c256_t handle, uint16_t addr, uint8_t val)
             if(handle->page_addr != (addr & ADDR_PAGE_MASK))
                 return;
 
+            handle->state_elapsed = 0;
             handle->last_write_addr = addr;
             handle->last_write = val;
             handle->page_mask |= ((uint64_t)1 << (addr & ADDR_BYTE_MASK));
