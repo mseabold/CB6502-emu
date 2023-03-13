@@ -267,3 +267,8 @@ uint8_t sdcard_spi_get(void)
 
     return out;
 }
+
+bool sdcard_detect(void)
+{
+    return cxt.init;
+}

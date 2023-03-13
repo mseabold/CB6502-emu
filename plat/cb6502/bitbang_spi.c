@@ -7,6 +7,7 @@
 #define SPI_MOSI        0x02
 #define SPI_MISO        0x04
 #define SPI_SS_SDCARD   0x10
+#define SPI_DETECT      0x80
 
 typedef struct bitbang_spi_cxt_s
 {
@@ -88,6 +89,15 @@ static void bitbang_spi_read(via_port_data_t data_type, uint8_t *data, void *use
     {
         /* Pull up. */
         *data |= SPI_MISO;
+    }
+
+    if(sdcard_detect())
+    {
+        *data |= SPI_DETECT;
+    }
+    else
+    {
+        *data &= ~SPI_DETECT;
     }
 }
 

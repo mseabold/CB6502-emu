@@ -7,5 +7,6 @@
 bool sdcard_init(const char *image_file);
 void sdcard_spi_write(uint8_t byte);
 uint8_t sdcard_spi_get(void);
+bool sdcard_detect(void);
 
 #endif /* end of include guard: __SDCARD_H__ */
