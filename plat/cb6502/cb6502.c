@@ -96,6 +96,8 @@ static const mem_space_t mem_space = {
 
 static void cpu_tick_callback(uint32_t ticks)
 {
+    /* Note, this assume a 1MHz emulated clock (1 tick = 1 nano) */
+    at28c256_tick(rom, ticks);
 }
 
 bool cb6502_init(const char *rom_file, const char *acia_socket)

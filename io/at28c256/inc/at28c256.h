@@ -17,6 +17,7 @@ bool at28c256_load_image(at28c256_t handle, uint16_t image_size, uint8_t *image,
 void at28c256_write(at28c256_t handle, uint16_t addr, uint8_t val);
 uint8_t at28c256_read(at28c256_t handle, uint16_t addr);
 void at28c256_tick(at28c256_t handle, uint32_t ticks);
+void at28c256_set_sdp_enable(at28c256_t handle, bool enable);
 
 
 #endif /* end of include guard: __AT28C256_H__ */
