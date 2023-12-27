@@ -1,6 +1,6 @@
 option(CURSES_USE_WIDE "Use wide characters in ncurses" ON)
 
-if(${CURSES_USE_WIDE})
+if(CURSES_USE_WIDE)
     set(CURSES_NEED_WIDE TRUE)
 endif()
 
@@ -30,23 +30,29 @@ target_link_libraries(fe_ncurses
         dbginfo
 )
 
-if(CURSES_HAVE_NCURSES_H)
-    set(CURSES_HEADER_DEF "CURSES_HAVE_NCURSES_H")
-elseif(CURSES_HAVE_NCURSES_NCURSES_H)
-    set(CURSES_HEADER_DEF "CURSES_HAVE_NCURSES_NCURSES_H")
-elseif(CURSES_HAVE_CURSES_H)
-    set(CURSES_HEADER_DEF "CURSES_HAVE_CURSES_H")
-elseif(CURSES_HAVE_NCURSES_CURSES_H)
-    set(CURSES_HEADER_DEF "CURSES_HAVE_NCURSES_CURSES_H")
+if(CURSES_USE_WIDE)
+    set(CURSES_DIR "ncursesw")
 else()
-    # I've seen this happen if you use NEED_WIDE but there is no
-    # ncursesw/ directory in the include path. Fallback to just using
-    # ncurses.h
-    set(CURSES_HEADER_DEF "CURSES_HAVE_NCURSES_H")
+    set(CURSES_DIR "ncurses")
+endif()
+
+if(CURSES_HAVE_NCURSES_NCURSES_H)
+    set(CURSES_HEADER "<${CURSES_DIR}/ncurses.h>")
+elseif(CURSES_HAVE_NCURSES_H)
+    set(CURSES_HEADER "<ncurses.h>")
+elseif(CURSES_HAVE_CURSES_H)
+    set(CURSES_HEADER "<curses.h>")
+elseif(CURSES_HAVE_NCURSES_CURSES_H)
+    set(CURSES_HEADER "<${CURSES_DIR}/curses.h")
+else()
+    # If NEEDS_WIDE is TRUE, FindCurses will skip looking for ncurses.h without
+    # an ncursesw/ directory. However I have seen distros (Arch at least) where ncurses with
+    # unicode support still only has ncurses.h. Default to that if we can't find anything else
+    set(CURSES_HEADER "<ncurses.h>")
 endif()
 
 target_compile_definitions(fe_ncurses PUBLIC
-    ${CURSES_HEADER_DEF}
+    CURSES_HEADER=${CURSES_HEADER}
 )
 
 # The documentation seems to indicate that setting CURSES_NEED_WIDE to TRUE
