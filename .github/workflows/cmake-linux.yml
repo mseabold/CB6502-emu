@@ -24,16 +24,33 @@ jobs:
       with:
         path: main
 
+    - uses: actions/checkout@v4
+      with:
+        path: unity
+
     - name: Install ncurses
       run: |
         sudo apt-get install -y libncurses-dev
 
+    - name: Configure Unity
+      run: cmake -B ${{github.workspace}}/unity/build -S ${{github.workspace}}/unity
+
+    - name: Build Unity
+      run: cmake --build ${{github.workspace}}/unity/build
+
+    - name: Install Unity
+      run: cmake --install ${{github.workspace}}/unity/build
+
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/main/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -S ${{github.workspace}}/main
+      run: cmake -B ${{github.workspace}}/main/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DENABLE_TESTING=ON -S ${{github.workspace}}/main
 
     - name: Build
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/main/build --config ${{env.BUILD_TYPE}}
+
+    - name: Test
+      working-directory: ${{github.workspace}}/main/build
+      run: ctest -C ${{env.BUILD_TYPE}}
 
