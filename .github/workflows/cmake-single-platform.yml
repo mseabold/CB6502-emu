@@ -27,13 +27,14 @@ jobs:
     - name: Install ncurses
       run: |
         sudo apt-get install -y libncurses-dev
-        locate ncurses.h
-        locate curses.h
+        ls /usr/include
+        ls /usr/include/ncurses
+        ls /usr/include/ncursesw
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/main/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -S ${{github.workspace}}/main
+      run: cmake -B ${{github.workspace}}/main/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON -S ${{github.workspace}}/main
 
     - name: Build
       # Build your program with the given configuration
