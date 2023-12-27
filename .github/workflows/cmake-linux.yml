@@ -41,7 +41,7 @@ jobs:
       run: cmake --build ${{github.workspace}}/unity/build
 
     - name: Install Unity
-      run: sudo make --install ${{github.workspace}}/unity/build
+      run: sudo cmake --install ${{github.workspace}}/unity/build
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
