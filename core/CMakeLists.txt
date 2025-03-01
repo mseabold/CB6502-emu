@@ -3,15 +3,11 @@ option(SUPPORT_65C02 "Support 65C02 opcodes" ON)
 add_library(cbemu STATIC
     src/sys.c
     src/cpu.c
-    src/acia.c
-    src/via.c
     src/debugger.c
     src/log.c
-    src/acia_console.c
 )
 
 if(UNIX)
-    target_sources(cbemu PRIVATE src/acia_unix_sock.c)
     target_sources(cbemu PRIVATE os/linux/src/os_signal_linux.c)
 elseif(WIN32)
     target_sources(cbemu PRIVATE os/windows/src/os_signal_windows.c)

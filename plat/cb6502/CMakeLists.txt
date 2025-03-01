@@ -6,6 +6,8 @@ target_link_libraries(cb6502 PUBLIC
     cbemu
     sdcard
     at28c256
+    via
+    acia
 )
 
 add_executable(cbdbg cbdbg.c)
