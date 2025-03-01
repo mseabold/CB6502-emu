@@ -9,6 +9,7 @@ add_subdirectory(plat/cb6502)
 add_subdirectory(frontend)
 add_subdirectory(io)
 add_subdirectory(dbginfo)
+add_subdirectory(port)
 
 if(${ENABLE_TESTING})
     enable_testing()

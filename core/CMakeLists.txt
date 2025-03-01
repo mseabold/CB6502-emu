@@ -40,13 +40,3 @@ target_include_directories(console_log
         inc
 )
 
-if(UNIX)
-add_library(syslog_log STATIC
-    src/syslog_log.c
-)
-
-target_include_directories(syslog_log
-    PUBLIC
-        inc
-)
-endif()
