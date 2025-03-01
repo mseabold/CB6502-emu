@@ -7,12 +7,6 @@ add_library(cbemu STATIC
     src/log.c
 )
 
-if(UNIX)
-    target_sources(cbemu PRIVATE os/linux/src/os_signal_linux.c)
-elseif(WIN32)
-    target_sources(cbemu PRIVATE os/windows/src/os_signal_windows.c)
-endif()
-
 target_include_directories(cbemu
     PUBLIC
         inc
@@ -21,6 +15,8 @@ target_include_directories(cbemu
 target_link_libraries(cbemu
     PUBLIC
         dbginfo
+    PRIVATE
+        os_port
 )
 
 if(SUPPORT_65C02)
