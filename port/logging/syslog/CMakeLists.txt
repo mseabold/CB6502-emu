@@ -8,10 +8,9 @@ target_include_directories(syslog_log
         inc
 )
 
-#WAR for including log.h until full refactoring is done
-target_include_directories(syslog_log
+target_link_libraries(syslog_log
     PUBLIC
-        ../../../core/inc
+        log_iface
 )
 
 endif()
