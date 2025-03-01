@@ -1,6 +1,8 @@
 option(SUPPORT_65C02 "Support 65C02 opcodes" ON)
 
 add_subdirectory(logging)
+add_subdirectory(os)
+add_subdirectory(util)
 
 add_library(cbemu STATIC
     src/sys.c
@@ -17,6 +19,8 @@ target_link_libraries(cbemu
     PUBLIC
         dbginfo
         logging
+        os_iface
+        util
     PRIVATE
         os_port
 )

@@ -10,8 +10,9 @@ target_include_directories(os_port
         inc
 )
 
-#WAR until refactoring is complete
-target_include_directories(os_port
+target_link_libraries(os_port
     PUBLIC
-        ../../../core/inc
+        os_iface
+    PRIVATE
+        util
 )
