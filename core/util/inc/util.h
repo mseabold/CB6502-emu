@@ -33,6 +33,14 @@ typedef struct listnode_s
  */
 #define list_container(_node, _type, _member) (_type *)(((uint8_t *)(_node)) - offsetof(_type, _member))
 
+#define list_tail(_head) ((_head)->prev)
+
+static inline void list_init(listnode_t *head)
+{
+    head->next = head;
+    head->prev = head;
+}
+
 /**
  * Determines if a given list is empty based on the supplied head node.
  *

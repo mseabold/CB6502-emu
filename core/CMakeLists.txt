@@ -8,11 +8,14 @@ add_library(cbemu STATIC
     src/sys.c
     src/cpu.c
     src/debugger.c
+    src/bus.c
 )
 
 target_include_directories(cbemu
     PUBLIC
         inc
+    PRIVATE
+        src/priv
 )
 
 target_link_libraries(cbemu
