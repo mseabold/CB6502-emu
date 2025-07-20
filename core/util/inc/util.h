@@ -17,6 +17,8 @@ typedef struct listnode_s
     struct listnode_s *prev; /**< Previous entry in the circular linked list. */
 } listnode_t;
 
+typedef void (*list_free_entry_cb_t)(listnode_t *node, void *param);
+
 /**
  * Initializer to create an empty list head. All lists contain a dummy head node so that
  * the next and prev pointer are never NULL. A list head should be a listnode_t structure declared
@@ -33,6 +35,7 @@ typedef struct listnode_s
  */
 #define list_container(_node, _type, _member) (_type *)(((uint8_t *)(_node)) - offsetof(_type, _member))
 
+#define list_head(_head) ((_head)->next)
 #define list_tail(_head) ((_head)->prev)
 
 static inline void list_init(listnode_t *head)
@@ -94,6 +97,22 @@ static inline void list_remove(listnode_t *rem)
     rem->next->prev = rem->prev;
 }
 
+static inline void list_insert_before(listnode_t *entry, listnode_t *add)
+{
+    add->next = entry;
+    add->prev = entry->prev;
+    entry->prev = add;
+    add->prev->next = add;
+}
+
+static inline void list_insert_after(listnode_t *entry, listnode_t *add)
+{
+    add->next = entry->next;
+    add->prev = entry;
+    entry->next = add;
+    add->next->prev = add;
+}
+
 /**
  * Macro to interate through a given list.
  */
@@ -107,18 +126,10 @@ static inline void list_remove(listnode_t *rem)
  *
  * @return true if the list contains the given node
  */
-static inline bool list_contains(listnode_t *head, listnode_t *node)
-{
-    listnode_t *iter;
-    list_iterate(head, iter)
-    {
-        if(iter == node)
-        {
-            return true;
-        }
-    }
+bool list_contains(listnode_t *head, listnode_t *node);
 
-    return false;
-}
+void list_free_offset_cb(listnode_t *node, void *param);
+void list_free(listnode_t *head, list_free_entry_cb_t callback, void *param);
+#define list_free_offset(_head, _type, _member) list_free(_head, list_free_offset_cb, (void *)(uintptr_t)offsetof(_type, _member))
 
 #endif /* end of include guard: __UTIL_H__ */
