@@ -1,7 +1,7 @@
 #include <stdlib.h>
 
 #include "emu_priv_types.h"
-#include "bus_api.h"
+#include "bus.h"
 #include "log.h"
 
 typedef struct bus_conn_s
