@@ -1,5 +1,5 @@
 #include <unity/unity.h>
-#include "bus_api.h"
+#include "bus.h"
 #include "emu_priv_types.h"
 #include "bus_priv.h"
 
