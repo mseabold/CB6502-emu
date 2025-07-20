@@ -9,6 +9,7 @@ add_library(cbemu STATIC
     src/cpu.c
     src/debugger.c
     src/bus.c
+    src/clock.c
 )
 
 target_include_directories(cbemu
