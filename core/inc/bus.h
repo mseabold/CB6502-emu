@@ -3,13 +3,15 @@
 
 #include "emu_types.h"
 
+/** Type of bus decode parameters */
 typedef enum
 {
-    BUSDECODE_RANGE,
-    BUSDECODE_MASK,
-    BUSDECODE_CUSTOM
+    BUSDECODE_RANGE,    /**< Address range */
+    BUSDECODE_MASK,     /**< Specific address bit values */
+    BUSDECODE_CUSTOM    /**< Custom callback-defined logic */
 } bus_decode_type_t;
 
+/** Parameters for Address Range bus decoding */
 typedef struct
 {
     /** Start address of decode range. This is inclusive. */
@@ -19,6 +21,7 @@ typedef struct
     uint16_t addr_end;
 } bus_decode_range_t;
 
+/** Parameters for bitmask bus decoding */
 typedef struct
 {
     /** Bitmask of meaningful address bits to decode. 0b1 means the corresponding bit
@@ -30,19 +33,25 @@ typedef struct
     uint16_t addr_value;
 } bus_decode_mask_t;
 
+/** Callback prototype for custom bus decoding */
 typedef bool (*bus_decode_cb_t)(uint16_t addr, bool write, void *userdata);
 
+/** Bus decoding parameters */
 typedef struct
 {
+    /** Type of decoding parameters contained */
     bus_decode_type_t type;
+
+    /** Value of decoding parameters */
     union
     {
-        bus_decode_range_t range;
-        bus_decode_mask_t mask;
-        bus_decode_cb_t custom;
+        bus_decode_range_t range; /**< Address Range parameters */
+        bus_decode_mask_t mask;   /**< Address Bitmask parameters */
+        bus_decode_cb_t custom;   /**< Custom callback */
     } value;
 } bus_decode_params_t;
 
+/** Handle for register bus callback */
 typedef void *bus_cb_handle_t;
 
 /**
@@ -75,6 +84,7 @@ typedef uint8_t (*bus_read_cb_t)(uint16_t addr, void *userdata);
  */
 typedef void (*bus_trace_cb_t)(uint16_t addr, uint8_t value, bool write, void *param);
 
+/** Container for bus callback functions */
 typedef struct
 {
     /** Called when a memory write is performed on the registered address. */
@@ -91,10 +101,44 @@ typedef struct
     bus_read_cb_t peek;
 } bus_handlers_t;
 
+/**
+ * Registers a bus connection with a set of handler callbacks with the specific decoder parameters
+ *
+ * @param[in] emu       The emulator core
+ * @param[in] params    Address decoding parameters for the bus connection
+ * @param[in] handlers  Handler functions called when the bus address matches the decoding
+ * @param[in] userdata  App-Specific userdata provided to the callback when made
+ *
+ * @return A handle for the registered connection or NULL on error
+ */
 bus_cb_handle_t emu_bus_register(cbemu_t emu, const bus_decode_params_t *params, const bus_handlers_t *handlers, void *userdata);
+
+/**
+ * Un-registers a previously registered bus connection
+ *
+ * @param[in] emu       The emulator core
+ * @param[in] handle    The registered bus handle
+ */
 void emu_bus_unregister(cbemu_t emu, bus_cb_handle_t handle);
 
+/**
+ * Adds a bus tracer callback to the bus. This is called on every bus transaction to allow
+ * debugging, testing, or monitoring of bus activity.
+ *
+ * @param[in] emu       The emulator core
+ * @param[in] callback  Tracer callback to be called for each bus transaction
+ * @param[in] userdata  App-specific user data provided to the callback when made
+ *
+ * @return A handle for the registered callback or NULL on error
+ */
 bus_cb_handle_t emu_bus_add_tracer(cbemu_t emu, const bus_trace_cb_t callback, void *userdata);
+
+/**
+ * Removes a previously registered tracer callback
+ *
+ * @param[in] emu       The emulator core
+ * @oaram[in] handle    Handle of the previously registered callback
+ */
 void emu_bus_remove_tracer(cbemu_t emu, bus_cb_handle_t handle);
 
 #endif /* end of include guard: __BUS_API_H__ */

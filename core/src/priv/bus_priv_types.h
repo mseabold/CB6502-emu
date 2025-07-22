@@ -4,10 +4,11 @@
 #include <stdint.h>
 #include "util.h"
 
+/** Internal Bus context structure */
 typedef struct bus_s
 {
-    listnode_t connlist;
-    listnode_t tracelist;
+    listnode_t connlist;    /**< List of registered bus connections. */
+    listnode_t tracelist;   /**< List of regisrered trace callbacks. */
 } bus_t;
 
 #endif /* end of include guard: __BUS_PRIV_TYPES_H__ */
