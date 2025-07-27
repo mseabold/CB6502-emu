@@ -5,9 +5,9 @@ add_subdirectory(os)
 add_subdirectory(util)
 
 add_library(cbemu STATIC
-    src/sys.c
+    #src/sys.c
     src/cpu.c
-    src/debugger.c
+    #src/debugger.c
     src/bus.c
     src/clock.c
 )
