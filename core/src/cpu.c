@@ -1811,7 +1811,15 @@ static void vector(cbemu_t emu)
             {
                 push8(emu, emu->cpu.regs.status);
             }
+
+            if(emu->cpu.vec_src == RST_VEC)
+            {
+                /* W65C02 sets B clears D on reset. */
+                cleardecimal(emu->cpu.regs.status);
+            }
+
             emu->cpu.regs.status |= FLAG_INTERRUPT;
+
             advance_state(&emu->cpu, VEC5, true);
             break;
         case VEC5:
@@ -1977,7 +1985,12 @@ const char *mnemonics[256] =
 bool cpu_init(cbemu_t emu)
 {
     memset(&emu->cpu, 0, sizeof(emu->cpu));
+    emu->cpu.regs.status |= FLAG_CONSTANT;
     emu->cpu.init = true;
+
+    /* Start in the reset vector state. */
+    emu->cpu.op_state = VEC0;
+    emu->cpu.vec_src = RST_VEC;
 
     return true;
 }

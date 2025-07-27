@@ -7,7 +7,7 @@
 #include "clock_priv.h"
 #include "cpu_priv.h"
 
-cbemu_t emu_init(emu_config_t *config)
+cbemu_t emu_init(const emu_config_t *config)
 {
     cbemu_t emu;
     bool initst;
