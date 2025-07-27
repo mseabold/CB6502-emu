@@ -10,8 +10,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include "cpu.h"
-#include "sys.h"
+#include "cpu_priv.h"
+#include "bus_priv.h"
+#include "clock_priv.h"
 
 #define FLAG_CARRY     0x01
 #define FLAG_ZERO      0x02
@@ -24,116 +25,79 @@
 
 #define BASE_STACK     0x100
 
-#define saveaccum(n) a = (uint8_t)((n) & 0x00FF)
+#define saveaccum(cpu) cpu.regs.a = (uint8_t)((cpu.result) & 0x00FF)
 
 
 //flag modifier macros
-#define setcarry() status |= FLAG_CARRY
-#define clearcarry() status &= (~FLAG_CARRY)
-#define setzero() status |= FLAG_ZERO
-#define clearzero() status &= (~FLAG_ZERO)
-#define setinterrupt() status |= FLAG_INTERRUPT
-#define clearinterrupt() status &= (~FLAG_INTERRUPT)
-#define setdecimal() status |= FLAG_DECIMAL
-#define cleardecimal() status &= (~FLAG_DECIMAL)
-#define setoverflow() status |= FLAG_OVERFLOW
-#define clearoverflow() status &= (~FLAG_OVERFLOW)
-#define setsign() status |= FLAG_SIGN
-#define clearsign() status &= (~FLAG_SIGN)
+#define setcarry(status) status |= FLAG_CARRY
+#define clearcarry(status) status &= (~FLAG_CARRY)
+#define setzero(status) status |= FLAG_ZERO
+#define clearzero(status) status &= (~FLAG_ZERO)
+#define setinterrupt(status) status |= FLAG_INTERRUPT
+#define clearinterrupt(status) status &= (~FLAG_INTERRUPT)
+#define setdecimal(status) status |= FLAG_DECIMAL
+#define cleardecimal(status) status &= (~FLAG_DECIMAL)
+#define setoverflow(status) status |= FLAG_OVERFLOW
+#define clearoverflow(status) status &= (~FLAG_OVERFLOW)
+#define setsign(status) status |= FLAG_SIGN
+#define clearsign(status) status &= (~FLAG_SIGN)
 
 
 //flag calculation macros
-#define zerocalc(n) \
+#define zerocalc(status, n) \
     do { \
         if((n) & 0x00FF) \
-            clearzero(); \
+            clearzero(status); \
         else \
-            setzero(); \
+            setzero(status); \
     } while(0)
 
-#define signcalc(n) \
+#define signcalc(status, n) \
     do { \
         if((n) & 0x0080) \
-            setsign(); \
+            setsign(status); \
         else \
-            clearsign(); \
+            clearsign(status); \
     } while(0)
 
-#define carrycalc(n) \
+#define carrycalc(status, n) \
     do { \
     if((n) & 0xFF00) \
-        setcarry(); \
+        setcarry(status); \
     else \
-        clearcarry(); \
+        clearcarry(status); \
     } while(0)
 
 /* n = result, m = accumulator, o = memory */
-#define overflowcalc(n, m, o) \
+#define overflowcalc(status, n, m, o) \
     do { \
         if(((n) ^ (uint16_t)(m)) & ((n) ^ (o)) & 0x0080) \
-            setoverflow(); \
+            setoverflow(status); \
         else \
-            clearoverflow(); \
+            clearoverflow(status); \
     } while(0)
 
-typedef enum
-{
-    BRK_VEC,
-    NMI_VEC,
-    RST_VEC,
-    IRQ_VEC
-} cpu_vec_src_t;
-
-//6502 CPU registers
-static uint16_t pc;
-static uint8_t sp, a, x, y, status;
-
-
-//helper variables
-static uint32_t instructions = 0; //keep track of total instructions executed
-static uint16_t oldpc, ea, reladdr, value, result;
-static uint8_t opcode, oldstatus;
-static uint16_t tmpval;
-static bool page_boundary, cycle_consumed;
-static cpu_vec_src_t vec_src;
-
-static sys_cxt_t syscxt;
-static cpu_tick_cb_t tick_callback;
-
 //a few general functions used by various other functions
-void push16(uint16_t pushval)
+void push8(cbemu_t emu, uint8_t pushval)
 {
-    sys_write_mem(syscxt, BASE_STACK + sp, (pushval >> 8) & 0xFF);
-    sys_write_mem(syscxt, BASE_STACK + ((sp - 1) & 0xFF), pushval & 0xFF);
-    sp -= 2;
+    bus_write(emu, BASE_STACK + emu->cpu.regs.sp--, pushval);
 }
 
-void push8(uint8_t pushval)
+uint8_t pull8(cbemu_t emu)
 {
-    sys_write_mem(syscxt, BASE_STACK + sp--, pushval);
-}
-
-uint16_t pull16()
-{
-    uint16_t temp16;
-    temp16 = sys_read_mem(syscxt, BASE_STACK + ((sp + 1) & 0xFF)) | ((uint16_t)sys_read_mem(syscxt, BASE_STACK + ((sp + 2) & 0xFF)) << 8);
-    sp += 2;
-    return(temp16);
-}
-
-uint8_t pull8()
-{
-    return (sys_read_mem(syscxt, BASE_STACK + ++sp));
+    return bus_read(emu, BASE_STACK + ++emu->cpu.regs.sp);
 }
 
 void cpu_reset()
 {
-    pc = (uint16_t)sys_read_mem(syscxt, 0xFFFC) | ((uint16_t)sys_read_mem(syscxt, 0xFFFD) << 8);
+#if 0
+    pc = (uint16_t)bus_read(emu, 0xFFFC) | ((uint16_t)bus_read(emu, 0xFFFD) << 8);
     a = 0;
     x = 0;
     y = 0;
     sp = 0xFD;
     status |= FLAG_CONSTANT;
+#endif
 }
 
 
@@ -157,38 +121,9 @@ typedef enum {
     NUM_ADDR_MODES
 } cpu_addr_mode_t;
 
-typedef enum {
-    /* Read opcode state. */
-    OPCODE,
-
-    /* Read address mode parameters states for
-     * individual clock cycles. */
-    PARAM0,
-    PARAM1,
-    PARAM2,
-    PARAM3,
-    PARAM4,
-
-    /* Opcode handler states for individual clock cycles. */
-    OP0,
-    OP1,
-    OP2,
-    OP3,
-    OP4,
-
-    VEC0,
-    VEC1,
-    VEC2,
-    VEC3,
-    VEC4,
-    VEC5,
-    VEC6,
-} op_state_t;
-
 const cpu_addr_mode_t addrtable[256];
-static void (*optable[256])();
+static void (*optable[256])(cbemu_t);
 static uint8_t penaltyop, penaltyaddr;
-static op_state_t op_state;
 static const uint8_t branch_shift_map[] = {
     7, /* N */
     6, /* V */
@@ -196,228 +131,225 @@ static const uint8_t branch_shift_map[] = {
     1  /* Z */
 };
 
-
-
-static inline void advance_state(op_state_t new_state, bool memcycle)
+static inline void advance_state(cpu_t *cpu, op_state_t new_state, bool memcycle)
 {
-    cycle_consumed = memcycle;
-
-    op_state = new_state;
+    cpu->cycle_consumed = memcycle;
+    cpu->op_state = new_state;
 }
 
 //addressing mode functions, calculates effective addresses
 
 //implied
-static void imp()
+static void imp(cbemu_t emu)
 {
     /* Implied opcodes take 2 cycles, reading the next PC an additional time. */
-    (void)sys_read_mem(syscxt, pc);
-    advance_state(OP0, false);
+    (void)bus_read(emu, emu->cpu.regs.pc);
+    advance_state(&emu->cpu, OP0, false);
 }
 
 //accumulator
-static void acc()
+static void acc(cbemu_t emu)
 {
     /* Implied opcodes take 2 cycles, reading the next PC an additional time. */
-    (void)sys_read_mem(syscxt, pc);
-    advance_state(OP0, false);
+    (void)bus_read(emu, emu->cpu.regs.pc);
+    advance_state(&emu->cpu, OP0, false);
 }
 
 //immediate
-static void imm()
+static void imm(cbemu_t emu)
 {
-    ea = pc++;
+    emu->cpu.ea = emu->cpu.regs.pc++;
 
     /* The read of the effective address will consume the second cycle. */
-    advance_state(OP0, false);
+    advance_state(&emu->cpu, OP0, false);
 }
 
 //zero-page
-static void zp()
+static void zp(cbemu_t emu)
 {
-    ea = (uint16_t)sys_read_mem(syscxt, (uint16_t)pc++);
-    advance_state(OP0, true);
+    emu->cpu.ea = (uint16_t)bus_read(emu, (uint16_t)emu->cpu.regs.pc++);
+    advance_state(&emu->cpu, OP0, true);
 }
 
 //zero-page,X
-static void zpx()
+static void zpx(cbemu_t emu)
 {
-    if(op_state == PARAM0)
+    if(emu->cpu.op_state == PARAM0)
     {
-        ea = sys_read_mem(syscxt, pc);
-        advance_state(PARAM1, true);
+        emu->cpu.ea = bus_read(emu, emu->cpu.regs.pc);
+        advance_state(&emu->cpu, PARAM1, true);
     }
     else
     {
-        ea = (ea + (uint16_t)x) & 0x00FF;
-        (void)sys_read_mem(syscxt, pc++);
-        advance_state(OP0, true);
+        emu->cpu.ea = (emu->cpu.ea + (uint16_t)emu->cpu.regs.x) & 0x00FF;
+        (void)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, OP0, true);
     }
 }
 
 //zero-page,Y
-static void zpy()
+static void zpy(cbemu_t emu)
 {
-    if(op_state == PARAM0)
+    if(emu->cpu.op_state == PARAM0)
     {
-        ea = sys_read_mem(syscxt, pc);
-        advance_state(PARAM1, true);
+        emu->cpu.ea = bus_read(emu, emu->cpu.regs.pc);
+        advance_state(&emu->cpu, PARAM1, true);
     }
     else
     {
-        ea = (ea + (uint16_t)y) & 0x00FF;
-        (void)sys_read_mem(syscxt, pc++);
-        advance_state(OP0, true);
+        emu->cpu.ea = (emu->cpu.ea + (uint16_t)emu->cpu.regs.y) & 0x00FF;
+        (void)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, OP0, true);
     }
 }
 
 //relative for branch ops (8-bit immediate value, sign-extended)
-static void rel()
+static void rel(cbemu_t emu)
 {
-    reladdr = (uint16_t)sys_read_mem(syscxt, pc++);
-    if(reladdr & 0x80)
-        reladdr |= 0xFF00;
+    emu->cpu.reladdr = (uint16_t)bus_read(emu, emu->cpu.regs.pc++);
+    if(emu->cpu.reladdr & 0x80)
+        emu->cpu.reladdr |= 0xFF00;
 
-    advance_state(OP0, false);
+    advance_state(&emu->cpu, OP0, false);
 }
 
 //absolute
-static void abso()
+static void abso(cbemu_t emu)
 {
-    if(opcode == 0x20)
+    if(emu->cpu.opcode == 0x20)
     {
         /* JSR is abso-like in that it has a 2 byte absolute address
          * parameter. But it acts differently. Let it handle itself.
          */
-        advance_state(OP0, false);
+        advance_state(&emu->cpu, OP0, false);
         return;
     }
 
-    if(op_state == PARAM0)
+    if(emu->cpu.op_state == PARAM0)
     {
-        ea = (uint16_t)sys_read_mem(syscxt, pc++);
-        advance_state(PARAM1, true);
+        emu->cpu.ea = (uint16_t)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, PARAM1, true);
     }
     else
     {
-        ea |= ((uint16_t)sys_read_mem(syscxt, pc++)) << 8;
+        emu->cpu.ea |= ((uint16_t)bus_read(emu, emu->cpu.regs.pc++)) << 8;
 
         /* JMP a is special in that there is no cycle after the immediate
          * address read. For it specifically, do not consume a cycle here.
          */
-        if(opcode == 0x4c)
+        if(emu->cpu.opcode == 0x4c)
         {
-            advance_state(OP0, false);
+            advance_state(&emu->cpu, OP0, false);
         }
         else
         {
-            advance_state(OP0, true);
+            advance_state(&emu->cpu, OP0, true);
         }
     }
 }
 
 //absolute,X
-static void absx()
+static void absx(cbemu_t emu)
 {
     uint16_t startpage;
 
-    if(op_state == PARAM0)
+    if(emu->cpu.op_state == PARAM0)
     {
-        ea = (uint16_t)sys_read_mem(syscxt, pc++);
-        advance_state(PARAM1, true);
+        emu->cpu.ea = (uint16_t)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, PARAM1, true);
     }
-    else if(op_state == PARAM1)
+    else if(emu->cpu.op_state == PARAM1)
     {
-        ea |= (uint16_t)sys_read_mem(syscxt, pc) << 8;
+        emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.regs.pc) << 8;
 
-        startpage = ea & 0xFF00;
-        ea += (uint16_t)x;
+        startpage = emu->cpu.ea & 0xFF00;
+        emu->cpu.ea += (uint16_t)emu->cpu.regs.x;
 
-        if(startpage != (ea & 0xFF00))
+        if(startpage != (emu->cpu.ea & 0xFF00))
         {
             /* Absolute address crossed pages. We need to eat one more penalty
              * cycle. */
-            page_boundary = true;
-            advance_state(PARAM2, true);
+            emu->cpu.page_boundary = true;
+            advance_state(&emu->cpu, PARAM2, true);
         }
         else
         {
-            ++pc;
-            advance_state(OP0, true);
+            ++emu->cpu.regs.pc;
+            advance_state(&emu->cpu, OP0, true);
         }
     }
     else
     {
         /* Penalty cycle. Repeat read cycle on current PC. */
-        (void)sys_read_mem(syscxt, pc++);
-        advance_state(OP0, true);
+        (void)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, OP0, true);
     }
 }
 
 //absolute,Y
-static void absy()
+static void absy(cbemu_t emu)
 {
     uint16_t startpage;
 
-    if(op_state == PARAM0)
+    if(emu->cpu.op_state == PARAM0)
     {
-        ea = (uint16_t)sys_read_mem(syscxt, pc++);
-        advance_state(PARAM1, true);
+        emu->cpu.ea = (uint16_t)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, PARAM1, true);
     }
-    else if(op_state == PARAM1)
+    else if(emu->cpu.op_state == PARAM1)
     {
-        ea |= (uint16_t)sys_read_mem(syscxt, pc) << 8;
+        emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.regs.pc) << 8;
 
-        startpage = ea & 0xFF00;
-        ea += (uint16_t)y;
+        startpage = emu->cpu.ea & 0xFF00;
+        emu->cpu.ea += (uint16_t)emu->cpu.regs.y;
 
-        if(startpage != (ea & 0xFF00))
+        if(startpage != (emu->cpu.ea & 0xFF00))
         {
             /* Absolute address crossed pages. We need to eat one more penalty
              * cycle. */
-            page_boundary = true;
-            advance_state(PARAM2, true);
+            emu->cpu.page_boundary = true;
+            advance_state(&emu->cpu, PARAM2, true);
         }
         else
         {
-            ++pc;
-            advance_state(OP0, true);
+            ++emu->cpu.regs.pc;
+            advance_state(&emu->cpu, OP0, true);
         }
     }
     else
     {
         /* Penalty cycle. Repeat read cycle on current PC. */
-        (void)sys_read_mem(syscxt, pc++);
-        advance_state(OP0, true);
+        (void)bus_read(emu, emu->cpu.regs.pc++);
+        advance_state(&emu->cpu, OP0, true);
     }
 }
 
 //indirect
-static void ind()
+static void ind(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            tmpval = (uint16_t)sys_read_mem(syscxt, pc++);
-            advance_state(PARAM1, true);
+            emu->cpu.tmpval = (uint16_t)bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
-            tmpval |= (uint16_t)sys_read_mem(syscxt, pc) << 8;
-            advance_state(PARAM2, true);
+            emu->cpu.tmpval |= (uint16_t)bus_read(emu, emu->cpu.regs.pc) << 8;
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
             /* 65C02 always takes an extra cycle here. This is the workaround to the
              * NMOS 6502 issue if page-wrap on this on this opcode. */
-            (void)sys_read_mem(syscxt, pc);
-            advance_state(PARAM3, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            advance_state(&emu->cpu, PARAM3, true);
             break;
         case PARAM3:
-            ea = (uint16_t)sys_read_mem(syscxt, tmpval);
-            advance_state(PARAM4, true);
+            emu->cpu.ea = (uint16_t)bus_read(emu, emu->cpu.tmpval);
+            advance_state(&emu->cpu, PARAM4, true);
             break;
         case PARAM4:
-            ea |= (uint16_t)sys_read_mem(syscxt, tmpval+1) << 8;
-            advance_state(OP0, false);
+            emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.tmpval+1) << 8;
+            advance_state(&emu->cpu, OP0, false);
             break;
         default:
             break;
@@ -425,27 +357,27 @@ static void ind()
 }
 
 // (indirect,X)
-static void indx()
+static void indx(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            tmpval = sys_read_mem(syscxt, pc);
-            advance_state(PARAM1, true);
+            emu->cpu.tmpval = bus_read(emu, emu->cpu.regs.pc);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
-            tmpval = (tmpval + (uint16_t)x) & 0x00FF;
-            (void)sys_read_mem(syscxt, pc++);
-            advance_state(PARAM2, true);
+            emu->cpu.tmpval = (emu->cpu.tmpval + (uint16_t)emu->cpu.regs.x) & 0x00FF;
+            (void)bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
-            ea = sys_read_mem(syscxt, tmpval);
-            tmpval = (tmpval + 1) & 0x00FF;
-            advance_state(PARAM3, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.tmpval);
+            emu->cpu.tmpval = (emu->cpu.tmpval + 1) & 0x00FF;
+            advance_state(&emu->cpu, PARAM3, true);
             break;
         case PARAM3:
-            ea |= (uint16_t)sys_read_mem(syscxt, tmpval) << 8;
-            advance_state(OP0, true);
+            emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.tmpval) << 8;
+            advance_state(&emu->cpu, OP0, true);
             break;
         default:
             break;
@@ -453,40 +385,40 @@ static void indx()
 }
 
 // (indirect),Y
-static void indy()
+static void indy(cbemu_t emu)
 {
     uint16_t startpage;
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            tmpval = sys_read_mem(syscxt, pc++);
-            advance_state(PARAM1, true);
+            emu->cpu.tmpval = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
-            ea = sys_read_mem(syscxt, tmpval);
-            tmpval = (tmpval + 1) & 0x00FF;
-            advance_state(PARAM2, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.tmpval);
+            emu->cpu.tmpval = (emu->cpu.tmpval + 1) & 0x00FF;
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
-            ea |= sys_read_mem(syscxt, tmpval) << 8;
-            startpage = ea & 0xFF00;
+            emu->cpu.ea |= bus_read(emu, emu->cpu.tmpval) << 8;
+            startpage = emu->cpu.ea & 0xFF00;
 
-            ea += (uint16_t)y;
+            emu->cpu.ea += (uint16_t)emu->cpu.regs.y;
 
-            if(startpage != (ea & 0xFF00))
+            if(startpage != (emu->cpu.ea & 0xFF00))
             {
-                page_boundary = true;
-                advance_state(PARAM3, true);
+                emu->cpu.page_boundary = true;
+                advance_state(&emu->cpu, PARAM3, true);
             }
             else
             {
-                advance_state(OP0, true);
+                advance_state(&emu->cpu, OP0, true);
             }
             break;
         case PARAM3:
             /* Repeat the second zeropage read on page cross. */
-            (void)sys_read_mem(syscxt, tmpval);
-            advance_state(OP0, true);
+            (void)bus_read(emu, emu->cpu.tmpval);
+            advance_state(&emu->cpu, OP0, true);
             break;
         default:
             break;
@@ -494,22 +426,22 @@ static void indy()
 }
 
 // (zp)
-static void indz()
+static void indz(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            tmpval = sys_read_mem(syscxt, pc++);
-            advance_state(PARAM1, true);
+            emu->cpu.tmpval = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
-            ea = sys_read_mem(syscxt, tmpval);
-            tmpval = (tmpval + 1) & 0xFF;
-            advance_state(PARAM2, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.tmpval);
+            emu->cpu.tmpval = (emu->cpu.tmpval + 1) & 0xFF;
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
-            ea |= ((uint16_t)sys_read_mem(syscxt, tmpval)) << 8;
-            advance_state(OP0, true);
+            emu->cpu.ea |= ((uint16_t)bus_read(emu, emu->cpu.tmpval)) << 8;
+            advance_state(&emu->cpu, OP0, true);
             break;
         default:
             break;
@@ -517,1374 +449,1401 @@ static void indz()
 }
 
 // (a,x)
-static void abin()
+static void abin(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            tmpval = sys_read_mem(syscxt, pc++);
-            advance_state(PARAM1, true);
+            emu->cpu.tmpval = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
             /* Note: PC does not seem to increment after second imm read.
-             *       The only opcode that uses this mode is jmp (a,x), so 
+             *       The only opcode that uses this mode is jmp (a,x), so
              *       the PC is overwritten anyways. */
-            tmpval |= (uint16_t)sys_read_mem(syscxt, pc) << 8;
-            advance_state(PARAM2, true);
+            emu->cpu.tmpval |= (uint16_t)bus_read(emu, emu->cpu.regs.pc) << 8;
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
             /* Bus re-reads same byte. Presumably this is to add X, handle
              * carry for indexing. */
-            (void)sys_read_mem(syscxt, pc);
-            tmpval += (uint16_t)x;
-            advance_state(PARAM3, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            emu->cpu.tmpval += (uint16_t)emu->cpu.regs.x;
+            advance_state(&emu->cpu, PARAM3, true);
             break;
         case PARAM3:
-            ea = sys_read_mem(syscxt, tmpval);
-            advance_state(PARAM4, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.tmpval);
+            advance_state(&emu->cpu, PARAM4, true);
             break;
         case PARAM4:
-            ea |= (uint16_t)sys_read_mem(syscxt, tmpval+1) << 8;
-            advance_state(OP0, false);
+            emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.tmpval+1) << 8;
+            advance_state(&emu->cpu, OP0, false);
             break;
         default:
             break;
     }
 }
 
-static void zprel()
+static void zprel(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case PARAM0:
-            ea = sys_read_mem(syscxt, pc++);
-            advance_state(PARAM1, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, PARAM1, true);
             break;
         case PARAM1:
             /* Read the value from zp before reading the relative branch. */
-            value = sys_read_mem(syscxt, ea);
-            advance_state(PARAM2, true);
+            emu->cpu.value = bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, PARAM2, true);
             break;
         case PARAM2:
             /* TODO This needs verification. The opcode reads from the ea twice. The question is
              *      whether the second read is ignored or can actually affect the result if the
              *      value changes. For now, assume it is ignored.
              */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(PARAM3, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, PARAM3, true);
             break;
         case PARAM3:
-            reladdr = sys_read_mem(syscxt, pc++);
-            advance_state(OP0, false);
+            emu->cpu.reladdr = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, OP0, false);
             break;
         default:
             break;
     }
 }
 
-static uint16_t getvalue()
+static uint16_t getvalue(cbemu_t emu)
 {
     uint16_t value;
 
-    if(addrtable[opcode] == ACC)
+    if(addrtable[emu->cpu.opcode] == ACC)
     {
-        value = (uint16_t)a;
+        value = (uint16_t)emu->cpu.regs.a;
     }
     else
     {
-        value = (uint16_t)sys_read_mem(syscxt, ea);
+        value = (uint16_t)bus_read(emu, emu->cpu.ea);
     }
 
     return value;
 }
 
-static uint16_t getvalue16()
+static void putvalue(cbemu_t emu, uint16_t saveval)
 {
-    return((uint16_t)sys_read_mem(syscxt, ea) | ((uint16_t)sys_read_mem(syscxt, ea+1) << 8));
-}
-
-static void putvalue(uint16_t saveval)
-{
-    if(addrtable[opcode] == ACC)
+    if(addrtable[emu->cpu.opcode] == ACC)
     {
-        a = (uint8_t)(saveval & 0x00FF);
+        emu->cpu.regs.a = (uint8_t)(saveval & 0x00FF);
     }
     else
     {
-        sys_write_mem(syscxt, ea, (saveval & 0x00FF));
+        bus_write(emu, emu->cpu.ea, (saveval & 0x00FF));
     }
 }
 
 
 //instruction handler functions
-static void adc()
+static void adc(cbemu_t emu)
 {
-    if(op_state == OP0)
+    uint16_t value;
+
+    if(emu->cpu.op_state == OP0)
     {
-        value = getvalue();
+        value = getvalue(emu);
 
-        result = (uint16_t)a + value + (uint16_t)(status & FLAG_CARRY);
+        emu->cpu.result = (uint16_t)emu->cpu.regs.a + value + (uint16_t)(emu->cpu.regs.status & FLAG_CARRY);
 
-        carrycalc(result);
-        zerocalc(result);
-        overflowcalc(result, a, value);
-        signcalc(result);
+        carrycalc(emu->cpu.regs.status, emu->cpu.result);
+        zerocalc(emu->cpu.regs.status, emu->cpu.result);
+        overflowcalc(emu->cpu.regs.status, emu->cpu.result, emu->cpu.regs.a, value);
+        signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-        if(status & FLAG_DECIMAL)
+        if(emu->cpu.regs.status & FLAG_DECIMAL)
         {
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            saveaccum(result);
-            advance_state(OPCODE, true);
+            saveaccum(emu->cpu);
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
         /* Only takes a second cycle for decimal mode. */
-        clearcarry();
+        clearcarry(emu->cpu.regs.status);
 
-        if((a & 0x0F) > 0x09)
+        if((emu->cpu.result & 0x0F) > 0x09)
         {
-            a += 0x06;
+            emu->cpu.result += 0x06;
         }
-        if((a & 0xF0) > 0x90)
+        if((emu->cpu.result & 0xF0) > 0x90)
         {
-            a += 0x60;
-            setcarry();
+            emu->cpu.result += 0x60;
+            setcarry(emu->cpu.regs.status);
         }
 
-        saveaccum(result);
-        advance_state(OPCODE, true);
+        saveaccum(emu->cpu);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void and()
+static void and(cbemu_t emu)
 {
-    value = getvalue();
+    uint16_t value, result;
 
-    result = (uint16_t)a & value;
+    value = getvalue(emu);
 
-    zerocalc(result);
-    signcalc(result);
+    result = (uint16_t)emu->cpu.regs.a & value;
 
-    saveaccum(result);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, result);
+    signcalc(emu->cpu.regs.status, result);
+
+    saveaccum(emu->cpu);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void asl()
+static void asl(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
+            value = getvalue(emu);
 
-            result = value << 1;
+            emu->cpu.result = value << 1;
 
-            carrycalc(result);
-            zerocalc(result);
-            signcalc(result);
+            carrycalc(emu->cpu.regs.status, emu->cpu.result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
                 /* Accumulator, so no additional cycles to consume. */
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             break;
         case OP1:
             /* Re-read the ea. */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void bxx()
+static void bxx(cbemu_t emu)
 {
     uint8_t exp_flag;
     uint8_t flag_shift;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* The top 2 bits of the opcode indicate which flag is being checked, and bit 6
              * indicates whether the bit should be set. */
-            flag_shift = branch_shift_map[(opcode & 0xc0) >> 6];
-            exp_flag = (opcode & 0x20) >> 5;
+            flag_shift = branch_shift_map[(emu->cpu.opcode & 0xc0) >> 6];
+            exp_flag = (emu->cpu.opcode & 0x20) >> 5;
 
-            if(((status >> flag_shift) & 0x01) == exp_flag)
+            if(((emu->cpu.regs.status >> flag_shift) & 0x01) == exp_flag)
             {
                 /* PC stays the same from the bus standpoint. */
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             else
             {
-                advance_state(OPCODE, true);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, pc);
+            (void)bus_read(emu, emu->cpu.regs.pc);
 
-            if((pc & 0xFF00) != ((pc + reladdr) & 0xFF00))
+            if((emu->cpu.regs.pc & 0xFF00) != ((emu->cpu.regs.pc + emu->cpu.reladdr) & 0xFF00))
             {
                 /* Branch jumps a page, so we need to eat another cycle (PC
                  * again stays the same. */
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             }
             else
             {
-                pc += reladdr;
-                advance_state(OPCODE, true);
+                emu->cpu.regs.pc += emu->cpu.reladdr;
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, pc);
-            pc += reladdr;
-            advance_state(OPCODE, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            emu->cpu.regs.pc += emu->cpu.reladdr;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void bit()
+static void bit(cbemu_t emu)
 {
-    value = getvalue();
-    result = (uint16_t)a & value;
+    uint16_t value, result;
 
-    zerocalc(result);
-    status = (status & 0x3F) | (uint8_t)(value & 0xC0);
+    value = getvalue(emu);
+    result = (uint16_t)emu->cpu.regs.a & value;
 
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, result);
+    emu->cpu.regs.status = (emu->cpu.regs.status & 0x3F) | (uint8_t)(value & 0xC0);
+
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void bra()
+static void bra(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* Consume the relative addr read cycle. */
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, pc);
+            (void)bus_read(emu, emu->cpu.regs.pc);
 
-            if((pc & 0xFF00) != ((pc + reladdr) & 0xFF00))
+            if((emu->cpu.regs.pc & 0xFF00) != ((emu->cpu.regs.pc + emu->cpu.reladdr) & 0xFF00))
             {
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             }
             else
             {
-                pc += reladdr;
-                advance_state(OPCODE, true);
+                emu->cpu.regs.pc += emu->cpu.reladdr;
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, pc);
-            pc += reladdr;
-            advance_state(OPCODE, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            emu->cpu.regs.pc += emu->cpu.reladdr;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void brk()
+static void brk(cbemu_t emu)
 {
     /* Consume the second PC read, then let the vector
      * state machine take over. */
-    advance_state(VEC2, true);
-    vec_src = BRK_VEC;
+    advance_state(&emu->cpu, VEC2, true);
+    emu->cpu.vec_src = BRK_VEC;
 }
 
-static void clc()
+static void clc(cbemu_t emu)
 {
-    clearcarry();
-    advance_state(OPCODE, true);
+    clearcarry(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void cld()
+static void cld(cbemu_t emu)
 {
-    cleardecimal();
-    advance_state(OPCODE, true);
+    cleardecimal(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void cli()
+static void cli(cbemu_t emu)
 {
-    clearinterrupt();
-    advance_state(OPCODE, true);
+    clearinterrupt(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void clv()
+static void clv(cbemu_t emu)
 {
-    clearoverflow();
-    advance_state(OPCODE, true);
+    clearoverflow(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void cmp()
+static void cmp(cbemu_t emu)
 {
-    value = getvalue();
-    result = (uint16_t)a - value;
+    uint16_t value, result;
 
-    if(a >= (uint8_t)(value & 0x00FF))
-        setcarry();
+    value = getvalue(emu);
+    result = (uint16_t)emu->cpu.regs.a - value;
+
+    if(emu->cpu.regs.a >= (uint8_t)(value & 0x00FF))
+        setcarry(emu->cpu.regs.status);
     else
-        clearcarry();
+        clearcarry(emu->cpu.regs.status);
 
-    if(a == (uint8_t)(value & 0x00FF))
-        setzero();
+    if(emu->cpu.regs.a == (uint8_t)(value & 0x00FF))
+        setzero(emu->cpu.regs.status);
     else
-        clearzero();
+        clearzero(emu->cpu.regs.status);
 
-    signcalc(result);
-    advance_state(OPCODE, true);
+    signcalc(emu->cpu.regs.status, result);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void cpx()
+static void cpx(cbemu_t emu)
 {
-    value = getvalue();
-    result = (uint16_t)x - value;
+    uint16_t value, result;
 
-    if(x >= (uint8_t)(value & 0x00FF))
-        setcarry();
+    value = getvalue(emu);
+    result = (uint16_t)emu->cpu.regs.x - value;
+
+    if(emu->cpu.regs.x >= (uint8_t)(value & 0x00FF))
+        setcarry(emu->cpu.regs.status);
     else
-        clearcarry();
+        clearcarry(emu->cpu.regs.status);
 
-    if(x == (uint8_t)(value & 0x00FF))
-        setzero();
+    if(emu->cpu.regs.x == (uint8_t)(value & 0x00FF))
+        setzero(emu->cpu.regs.status);
     else
-        clearzero();
+        clearzero(emu->cpu.regs.status);
 
-    signcalc(result);
-    advance_state(OPCODE, true);
+    signcalc(emu->cpu.regs.status, result);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void cpy()
+static void cpy(cbemu_t emu)
 {
-    value = getvalue();
-    result = (uint16_t)y - value;
+    uint16_t value, result;
 
-    if(y >= (uint8_t)(value & 0x00FF))
-        setcarry();
+    value = getvalue(emu);
+    result = (uint16_t)emu->cpu.regs.y - value;
+
+    if(emu->cpu.regs.y >= (uint8_t)(value & 0x00FF))
+        setcarry(emu->cpu.regs.status);
     else
-        clearcarry();
+        clearcarry(emu->cpu.regs.status);
 
-    if(y == (uint8_t)(value & 0x00FF))
-        setzero();
+    if(emu->cpu.regs.y == (uint8_t)(value & 0x00FF))
+        setzero(emu->cpu.regs.status);
     else
-        clearzero();
+        clearzero(emu->cpu.regs.status);
 
-    signcalc(result);
-    advance_state(OPCODE, true);
+    signcalc(emu->cpu.regs.status, result);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void dec()
+static void dec(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* There is a fixed penalty cycle here for some addressing modes. For a page boundary,
              * it has already been consumed. If not, we need to consumed it here with an additonal
              * EA read. */
-            if(addrtable[opcode] == ABSX && !page_boundary)
+            if(addrtable[emu->cpu.opcode] == ABSX && !emu->cpu.page_boundary)
             {
-                (void)sys_read_mem(syscxt, ea);
-                advance_state(OP1, true);
+                (void)bus_read(emu, emu->cpu.ea);
+                advance_state(&emu->cpu, OP1, true);
             }
             else
             {
                 /* Advance without consuming a cycle. */
-                advance_state(OP1, false);
+                advance_state(&emu->cpu, OP1, false);
             }
             break;
         case OP1:
-            value = getvalue();
-            result = value - 1;
+            value = getvalue(emu);
+            emu->cpu.result = value - 1;
 
-            zerocalc(result);
-            signcalc(result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
             {
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             }
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP3, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP3, true);
             break;
         case OP3:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void dex()
+static void dex(cbemu_t emu)
 {
-    x--;
+    emu->cpu.regs.x--;
 
-    zerocalc(x);
-    signcalc(x);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
 
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void dey()
+static void dey(cbemu_t emu)
 {
-    y--;
+    emu->cpu.regs.y--;
 
-    zerocalc(y);
-    signcalc(y);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.y);
 
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void eor()
+static void eor(cbemu_t emu)
 {
-    penaltyop = 1;
-    value = getvalue();
-    result = (uint16_t)a ^ value;
+    uint16_t value, result;
 
-    zerocalc(result);
-    signcalc(result);
+    value = getvalue(emu);
+    result = (uint16_t)emu->cpu.regs.a ^ value;
 
-    saveaccum(result);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, result);
+    signcalc(emu->cpu.regs.status, result);
+
+    saveaccum(emu->cpu);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void inc()
+static void inc(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* There is a fixed penalty cycle here for some addressing modes. For a page boundary,
              * it has already been consumed. If not, we need to consumed it here with an additonal
              * EA read. */
-            if(addrtable[opcode] == ABSX && !page_boundary)
+            if(addrtable[emu->cpu.opcode] == ABSX && !emu->cpu.page_boundary)
             {
-                (void)sys_read_mem(syscxt, ea);
-                advance_state(OP1, true);
+                (void)bus_read(emu, emu->cpu.ea);
+                advance_state(&emu->cpu, OP1, true);
             }
             else
             {
                 /* Advance without consuming a cycle. */
-                advance_state(OP1, false);
+                advance_state(&emu->cpu, OP1, false);
             }
             break;
         case OP1:
-            value = getvalue();
-            result = value + 1;
+            value = getvalue(emu);
+            emu->cpu.result = value + 1;
 
-            zerocalc(result);
-            signcalc(result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP3, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP3, true);
             break;
         case OP3:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void inx()
+static void inx(cbemu_t emu)
 {
-    x++;
+    emu->cpu.regs.x++;
 
-    zerocalc(x);
-    signcalc(x);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
 
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void iny()
+static void iny(cbemu_t emu)
 {
-    y++;
+    emu->cpu.regs.y++;
 
-    zerocalc(y);
-    signcalc(y);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.y);
 
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void jmp()
+static void jmp(cbemu_t emu)
 {
-    pc = ea;
-    advance_state(OPCODE, true);
+    emu->cpu.regs.pc = emu->cpu.ea;
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void jsr()
+static void jsr(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            ea = sys_read_mem(syscxt, pc++);
-            advance_state(OP1, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
             /* Ignored stack read. */
-            (void)sys_read_mem(syscxt, BASE_STACK + sp);
-            advance_state(OP2, true);
+            (void)bus_read(emu, BASE_STACK + emu->cpu.regs.sp);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            push8((pc & 0xFF00) >> 8);
-            advance_state(OP3, true);
+            push8(emu, (emu->cpu.regs.pc & 0xFF00) >> 8);
+            advance_state(&emu->cpu, OP3, true);
             break;
         case OP3:
-            push8(pc & 0xFF);
-            advance_state(OP4, true);
+            push8(emu, emu->cpu.regs.pc & 0xFF);
+            advance_state(&emu->cpu, OP4, true);
             break;
         case OP4:
-            ea |= (uint16_t)sys_read_mem(syscxt, pc) << 8;
-            pc = ea;
-            advance_state(OPCODE, true);
+            emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.regs.pc) << 8;
+            emu->cpu.regs.pc = emu->cpu.ea;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void lda()
+static void lda(cbemu_t emu)
 {
-    penaltyop = 1;
-    value = getvalue();
-    a = (uint8_t)(value & 0x00FF);
+    uint16_t value;
 
-    zerocalc(a);
-    signcalc(a);
-    advance_state(OPCODE, true);
+    value = getvalue(emu);
+    emu->cpu.regs.a = (uint8_t)(value & 0x00FF);
+
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void ldx()
+static void ldx(cbemu_t emu)
 {
-    penaltyop = 1;
-    value = getvalue();
-    x = (uint8_t)(value & 0x00FF);
+    uint16_t value;
 
-    zerocalc(x);
-    signcalc(x);
-    advance_state(OPCODE, true);
+    value = getvalue(emu);
+    emu->cpu.regs.x = (uint8_t)(value & 0x00FF);
+
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void ldy()
+static void ldy(cbemu_t emu)
 {
-    penaltyop = 1;
-    value = getvalue();
-    y = (uint8_t)(value & 0x00FF);
+    uint16_t value;
 
-    zerocalc(y);
-    signcalc(y);
-    advance_state(OPCODE, true);
+    value = getvalue(emu);
+    emu->cpu.regs.y = (uint8_t)(value & 0x00FF);
+
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void lsr()
+static void lsr(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
-            result = value >> 1;
+            value = getvalue(emu);
+            emu->cpu.result = value >> 1;
 
             if(value & 1)
-                setcarry();
+                setcarry(emu->cpu.regs.status);
             else
-                clearcarry();
+                clearcarry(emu->cpu.regs.status);
 
-            zerocalc(result);
-            signcalc(result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
 
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void nop()
+static void nop(cbemu_t emu)
 {
     /* TODO cycle counts for undocumented nops? */
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void ora()
+static void ora(cbemu_t emu)
 {
-    penaltyop = 1;
-    value = getvalue();
-    result = (uint16_t)a | value;
+    uint16_t value;
 
-    zerocalc(result);
-    signcalc(result);
+    value = getvalue(emu);
+    emu->cpu.result = (uint16_t)emu->cpu.regs.a | value;
 
-    saveaccum(result);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.result);
+    signcalc(emu->cpu.regs.status, emu->cpu.result);
+
+    saveaccum(emu->cpu);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void ph_()
+static void ph_(cbemu_t emu)
 {
-    if(op_state == OP0)
+    if(emu->cpu.op_state == OP0)
     {
         /* Consume the immediate (next PC) read. */
-        advance_state(OP1, true);
+        advance_state(&emu->cpu, OP1, true);
     }
     else
     {
-        switch(opcode)
+        switch(emu->cpu.opcode)
         {
             case 0x08:
-                push8(status | FLAG_BREAK);
+                push8(emu, emu->cpu.regs.status | FLAG_BREAK);
                 break;
             case 0x48:
-                push8(a);
+                push8(emu, emu->cpu.regs.a);
                 break;
             case 0x5A:
-                push8(y);
+                push8(emu, emu->cpu.regs.y);
                 break;
             case 0xDA:
-                push8(x);
+                push8(emu, emu->cpu.regs.x);
                 break;
             default:
                 break;
         }
 
-        advance_state(OPCODE, true);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void pl_(void)
+static void pl_(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* Consume the immediate read state. */
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
             /* Read the current stack pointer before it increments. */
-            (void)sys_read_mem(syscxt, BASE_STACK + sp);
-            advance_state(OP2, true);
+            (void)bus_read(emu, BASE_STACK + emu->cpu.regs.sp);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            switch(opcode)
+            switch(emu->cpu.opcode)
             {
                 case 0x28:
-                    status = pull8() | FLAG_CONSTANT; // TODO Ignore Break?
+                    emu->cpu.regs.status = pull8(emu) | FLAG_CONSTANT; // TODO Ignore Break?
                     break;
                 case 0x68:
-                    a = pull8();
-                    zerocalc(a);
-                    signcalc(a);
+                    emu->cpu.regs.a = pull8(emu);
+                    zerocalc(emu->cpu.regs.status, emu->cpu.regs.a);
+                    signcalc(emu->cpu.regs.status, emu->cpu.regs.a);
                     break;
                 case 0x7A:
-                    y = pull8();
-                    zerocalc(y);
-                    signcalc(y);
+                    emu->cpu.regs.y = pull8(emu);
+                    zerocalc(emu->cpu.regs.status, emu->cpu.regs.y);
+                    signcalc(emu->cpu.regs.status, emu->cpu.regs.y);
                     break;
                 case 0xFA:
-                    x = pull8();
-                    zerocalc(x);
-                    signcalc(x);
+                    emu->cpu.regs.x = pull8(emu);
+                    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+                    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
                     break;
                 default:
                     break;
             }
 
-            advance_state(OPCODE, true);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void rol()
+static void rol(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
-            result = (value << 1) | (status & FLAG_CARRY);
+            value = getvalue(emu);
+            emu->cpu.result = (value << 1) | (emu->cpu.regs.status & FLAG_CARRY);
 
-            carrycalc(result);
-            zerocalc(result);
-            signcalc(result);
+            carrycalc(emu->cpu.regs.status, emu->cpu.result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void ror()
+static void ror(cbemu_t emu)
 {
-    switch(op_state)
+    uint16_t value;
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
-            result = (value >> 1) | ((status & FLAG_CARRY) << 7);
+            value = getvalue(emu);
+            emu->cpu.result = (value >> 1) | ((emu->cpu.regs.status & FLAG_CARRY) << 7);
 
             if(value & 1)
-                setcarry();
+                setcarry(emu->cpu.regs.status);
             else
-                clearcarry();
+                clearcarry(emu->cpu.regs.status);
 
-            zerocalc(result);
-            signcalc(result);
+            zerocalc(emu->cpu.regs.status, emu->cpu.result);
+            signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-            if(addrtable[opcode] == ACC)
+            if(addrtable[emu->cpu.opcode] == ACC)
             {
-                putvalue(result);
-                advance_state(OPCODE, true);
+                putvalue(emu, emu->cpu.result);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             else
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void rti()
+static void rti(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, BASE_STACK+sp);
-            advance_state(OP2, true);
+            (void)bus_read(emu, BASE_STACK+emu->cpu.regs.sp);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            status = pull8();
-            advance_state(OP3, true);
+            emu->cpu.regs.status = pull8(emu);
+            advance_state(&emu->cpu, OP3, true);
             break;
         case OP3:
-            tmpval = pull8();
-            advance_state(OP4, true);
+            emu->cpu.tmpval = pull8(emu);
+            advance_state(&emu->cpu, OP4, true);
             break;
         case OP4:
-            tmpval |= ((uint16_t)pull8()) << 8;
-            pc = tmpval;
-            advance_state(OPCODE, true);
+            emu->cpu.tmpval |= ((uint16_t)pull8(emu)) << 8;
+            emu->cpu.regs.pc = emu->cpu.tmpval;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void rts()
+static void rts(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, BASE_STACK+sp);
-            advance_state(OP2, true);
+            (void)bus_read(emu, BASE_STACK+emu->cpu.regs.sp);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            tmpval = pull8();
-            advance_state(OP3, true);
+            emu->cpu.tmpval = pull8(emu);
+            advance_state(&emu->cpu, OP3, true);
             break;
         case OP3:
-            tmpval |= (uint16_t)pull8() << 8;
-            pc = tmpval;
-            advance_state(OP4, true);
+            emu->cpu.tmpval |= (uint16_t)pull8(emu) << 8;
+            emu->cpu.regs.pc = emu->cpu.tmpval;
+            advance_state(&emu->cpu, OP4, true);
             break;
         case OP4:
             /* Read the last PC of the JSR, then increment to the next op. */
-            (void)sys_read_mem(syscxt, pc++);
-            advance_state(OPCODE, true);
+            (void)bus_read(emu, emu->cpu.regs.pc++);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void sbc()
+static void sbc(cbemu_t emu)
 {
-    if(op_state == OP0)
+    uint16_t value;
+
+    if(emu->cpu.op_state == OP0)
     {
-        value = getvalue() ^ 0x00FF;
-        result = (uint16_t)a + value + (uint16_t)(status & FLAG_CARRY);
+        value = getvalue(emu) ^ 0x00FF;
+        emu->cpu.result = (uint16_t)emu->cpu.regs.a + value + (uint16_t)(emu->cpu.regs.status & FLAG_CARRY);
 
-        carrycalc(result);
-        zerocalc(result);
-        overflowcalc(result, a, value);
-        signcalc(result);
+        carrycalc(emu->cpu.regs.status, emu->cpu.result);
+        zerocalc(emu->cpu.regs.status, emu->cpu.result);
+        overflowcalc(emu->cpu.regs.status, emu->cpu.result, emu->cpu.regs.a, value);
+        signcalc(emu->cpu.regs.status, emu->cpu.result);
 
-        if(status & FLAG_DECIMAL)
+        if(emu->cpu.regs.status & FLAG_DECIMAL)
         {
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            saveaccum(result);
-            advance_state(OPCODE, true);
+            emu->cpu.regs.a = emu->cpu.result;
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
-        clearcarry();
+        clearcarry(emu->cpu.regs.status);
 
-        a -= 0x66;
-        if((a & 0x0F) > 0x09)
+        emu->cpu.regs.a -= 0x66;
+        if((emu->cpu.regs.a & 0x0F) > 0x09)
         {
-            a += 0x06;
+            emu->cpu.regs.a += 0x06;
         }
-        if((a & 0xF0) > 0x90)
+        if((emu->cpu.regs.a & 0xF0) > 0x90)
         {
-            a += 0x60;
-            setcarry();
+            emu->cpu.regs.a += 0x60;
+            setcarry(emu->cpu.regs.status);
         }
 
-        saveaccum(result);
-        advance_state(OPCODE, true);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void sec()
+static void sec(cbemu_t emu)
 {
-    setcarry();
-    advance_state(OPCODE, true);
+    setcarry(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void sed()
+static void sed(cbemu_t emu)
 {
-    setdecimal();
-    advance_state(OPCODE, true);
+    setdecimal(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void sei()
+static void sei(cbemu_t emu)
 {
-    setinterrupt();
-    advance_state(OPCODE, true);
+    setinterrupt(emu->cpu.regs.status);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void sta()
+static void sta(cbemu_t emu)
 {
     cpu_addr_mode_t mode;
 
-    if(op_state == OP0)
+    if(emu->cpu.op_state == OP0)
     {
-        mode = addrtable[opcode];
+        mode = addrtable[emu->cpu.opcode];
 
         /* Store abs,X/Y instructions take an extra cycle regardless of page
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !page_boundary)
+        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
         {
             /* The extra cycle reads the eventual write address. */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP1, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP1, true);
         }
-        else if(mode == INDY && !page_boundary)
+        else if(mode == INDY && !emu->cpu.page_boundary)
         {
             /* Another special penalty op. This team, re-read the second zp
-             * address. This shoudl still be in tmpval. */
-            (void)sys_read_mem(syscxt, tmpval);
-            advance_state(OP1, true);
+             * address. This shoudl still be in emu->cpu.tmpval. */
+            (void)bus_read(emu, emu->cpu.tmpval);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            putvalue(a);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.regs.a);
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
-        putvalue(a);
-        advance_state(OPCODE, true);
+        putvalue(emu, emu->cpu.regs.a);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void stx()
+static void stx(cbemu_t emu)
 {
     cpu_addr_mode_t mode;
 
-    if(op_state == OP0)
+    if(emu->cpu.op_state == OP0)
     {
-        mode = addrtable[opcode];
+        mode = addrtable[emu->cpu.opcode];
 
         /* Store abs,X/Y instructions take an extra cycle regardless of page
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !page_boundary)
+        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
         {
             /* The extra cycle reads the eventual write address. */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP1, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            putvalue(x);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.regs.x);
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
-        putvalue(x);
-        advance_state(OPCODE, true);
+        putvalue(emu, emu->cpu.regs.x);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void sty()
+static void sty(cbemu_t emu)
 {
     cpu_addr_mode_t mode;
 
-    if(op_state == OP0)
+    if(emu->cpu.op_state == OP0)
     {
-        mode = addrtable[opcode];
+        mode = addrtable[emu->cpu.opcode];
 
         /* Store abs,X/Y instructions take an extra cycle regardless of page
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !page_boundary)
+        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
         {
             /* The extra cycle reads the eventual write address. */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP1, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            putvalue(y);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.regs.y);
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
-        putvalue(y);
-        advance_state(OPCODE, true);
+        putvalue(emu, emu->cpu.regs.y);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void stz()
+static void stz(cbemu_t emu)
 {
     cpu_addr_mode_t mode;
 
-    if(op_state == OP0)
+    if(emu->cpu.op_state == OP0)
     {
-        mode = addrtable[opcode];
+        mode = addrtable[emu->cpu.opcode];
 
         /* Store abs,X/Y instructions take an extra cycle regardless of page
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !page_boundary)
+        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
         {
             /* The extra cycle reads the eventual write address. */
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP1, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP1, true);
         }
         else
         {
-            putvalue(0);
-            advance_state(OPCODE, true);
+            putvalue(emu, 0);
+            advance_state(&emu->cpu, OPCODE, true);
         }
     }
     else
     {
-        putvalue(0);
-        advance_state(OPCODE, true);
+        putvalue(emu, 0);
+        advance_state(&emu->cpu, OPCODE, true);
     }
 }
 
-static void tax()
+static void tax(cbemu_t emu)
 {
-    x = a;
+    emu->cpu.regs.x = emu->cpu.regs.a;
 
-    zerocalc(x);
-    signcalc(x);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void tay()
+static void tay(cbemu_t emu)
 {
-    y = a;
+    emu->cpu.regs.y = emu->cpu.regs.a;
 
-    zerocalc(y);
-    signcalc(y);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.y);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void tsx()
+static void tsx(cbemu_t emu)
 {
-    x = sp;
+    emu->cpu.regs.x = emu->cpu.regs.sp;
 
-    zerocalc(x);
-    signcalc(x);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.x);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void txa()
+static void txa(cbemu_t emu)
 {
-    a = x;
+    emu->cpu.regs.a = emu->cpu.regs.x;
 
-    zerocalc(a);
-    signcalc(a);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void txs()
+static void txs(cbemu_t emu)
 {
-    sp = x;
-    advance_state(OPCODE, true);
+    emu->cpu.regs.sp = emu->cpu.regs.x;
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void tya()
+static void tya(cbemu_t emu)
 {
-    a = y;
+    emu->cpu.regs.a = emu->cpu.regs.y;
 
-    zerocalc(a);
-    signcalc(a);
-    advance_state(OPCODE, true);
+    zerocalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    signcalc(emu->cpu.regs.status, emu->cpu.regs.a);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void wai()
+static void wai(cbemu_t emu)
 {
     //TODO
-    advance_state(OPCODE, true);
+    advance_state(&emu->cpu, OPCODE, true);
 }
 
-static void trb()
+static void trb(cbemu_t emu)
 {
     uint8_t test;
+    uint16_t value;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
+            value = getvalue(emu);
 
-            test = value & a;
-            zerocalc(test);
+            test = value & emu->cpu.regs.a;
+            zerocalc(emu->cpu.regs.status, test);
 
-            result = value & ~a;
-            advance_state(OP1, true);
+            emu->cpu.result = value & ~emu->cpu.regs.a;
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void tsb()
+static void tsb(cbemu_t emu)
 {
     uint8_t test;
+    uint16_t value;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            value = getvalue();
+            value = getvalue(emu);
 
-            test = value & a;
-            zerocalc(test);
+            test = value & emu->cpu.regs.a;
+            zerocalc(emu->cpu.regs.status, test);
 
-            result = value | a;
-            advance_state(OP1, true);
+            emu->cpu.result = value | emu->cpu.regs.a;
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void rmb()
+static void rmb(cbemu_t emu)
 {
     uint8_t bit;
+    uint16_t value;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* RMBX = 0x[0-7]7, so extract the bit to reset from the opcode. */
-            bit = (opcode >> 8);
-            value = getvalue();
-            result = value & ~(1 << bit);
+            bit = (emu->cpu.opcode >> 8);
+            value = getvalue(emu);
+            emu->cpu.result = value & ~(1 << bit);
 
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void smb()
+static void smb(cbemu_t emu)
 {
     uint8_t bit;
+    uint16_t value;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
             /* RMBX = 0x[0-7]7, so extract the bit to reset from the opcode. */
-            bit = (opcode >> 8);
-            value = getvalue();
-            result = value | (1 << bit);
+            bit = (emu->cpu.opcode >> 8);
+            value = getvalue(emu);
+            emu->cpu.result = value | (1 << bit);
 
-            advance_state(OP1, true);
+            advance_state(&emu->cpu, OP1, true);
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, ea);
-            advance_state(OP2, true);
+            (void)bus_read(emu, emu->cpu.ea);
+            advance_state(&emu->cpu, OP2, true);
             break;
         case OP2:
-            putvalue(result);
-            advance_state(OPCODE, true);
+            putvalue(emu, emu->cpu.result);
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void bbr()
+static void bbr(cbemu_t emu)
 {
     uint8_t bit;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            bit = (opcode >> 8);
+            bit = (emu->cpu.opcode >> 8);
 
             /* The value has been cached here by the address mode handler. */
-            if((value && (1 << bit)) == 0)
+            if((emu->cpu.value && (1 << bit)) == 0)
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             else
             {
-                advance_state(OPCODE, true);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, pc);
+            (void)bus_read(emu, emu->cpu.regs.pc);
 
-            if((pc & 0xFF00) != ((pc + reladdr) & 0xFF00))
+            if((emu->cpu.regs.pc & 0xFF00) != ((emu->cpu.regs.pc + emu->cpu.reladdr) & 0xFF00))
             {
                 /* Branch jumps a page, so we need to eat another cycle (PC
                  * again stays the same. */
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             }
             else
             {
-                pc += reladdr;
-                advance_state(OPCODE, true);
+                emu->cpu.regs.pc += emu->cpu.reladdr;
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, pc);
-            pc += reladdr;
-            advance_state(OPCODE, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            emu->cpu.regs.pc += emu->cpu.reladdr;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void bbs()
+static void bbs(cbemu_t emu)
 {
     uint8_t bit;
 
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case OP0:
-            bit = (opcode >> 8);
+            bit = (emu->cpu.opcode >> 8);
 
             /* The value has been cached here by the address mode handler. */
-            if((value && (1 << bit)) != 0)
+            if((emu->cpu.value && (1 << bit)) != 0)
             {
-                advance_state(OP1, true);
+                advance_state(&emu->cpu, OP1, true);
             }
             else
             {
-                advance_state(OPCODE, true);
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP1:
-            (void)sys_read_mem(syscxt, pc);
+            (void)bus_read(emu, emu->cpu.regs.pc);
 
-            if((pc & 0xFF00) != ((pc + reladdr) & 0xFF00))
+            if((emu->cpu.regs.pc & 0xFF00) != ((emu->cpu.regs.pc + emu->cpu.reladdr) & 0xFF00))
             {
                 /* Branch jumps a page, so we need to eat another cycle (PC
                  * again stays the same. */
-                advance_state(OP2, true);
+                advance_state(&emu->cpu, OP2, true);
             }
             else
             {
-                pc += reladdr;
-                advance_state(OPCODE, true);
+                emu->cpu.regs.pc += emu->cpu.reladdr;
+                advance_state(&emu->cpu, OPCODE, true);
             }
             break;
         case OP2:
-            (void)sys_read_mem(syscxt, pc);
-            pc += reladdr;
-            advance_state(OPCODE, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            emu->cpu.regs.pc += emu->cpu.reladdr;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void vector(void)
+static void vector(cbemu_t emu)
 {
-    switch(op_state)
+    switch(emu->cpu.op_state)
     {
         case VEC0:
-            (void)sys_read_mem(syscxt, pc);
-            advance_state(VEC1, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            advance_state(&emu->cpu, VEC1, true);
             break;
         case VEC1:
-            (void)sys_read_mem(syscxt, pc);
-            advance_state(VEC2, true);
+            (void)bus_read(emu, emu->cpu.regs.pc);
+            advance_state(&emu->cpu, VEC2, true);
             break;
         case VEC2:
-            push8((pc >> 8) & 0xff);
-            advance_state(VEC3, true);
+            push8(emu, (emu->cpu.regs.pc >> 8) & 0xff);
+            advance_state(&emu->cpu, VEC3, true);
             break;
         case VEC3:
-            push8(pc & 0xff);
-            advance_state(VEC4, true);
+            push8(emu, emu->cpu.regs.pc & 0xff);
+            advance_state(&emu->cpu, VEC4, true);
             break;
         case VEC4:
-            if(vec_src == BRK_VEC)
+            if(emu->cpu.vec_src == BRK_VEC)
             {
-                push8(status | FLAG_BREAK);
+                push8(emu, emu->cpu.regs.status | FLAG_BREAK);
             }
             else
             {
-                push8(status);
+                push8(emu, emu->cpu.regs.status);
             }
-            status |= FLAG_INTERRUPT;
-            advance_state(VEC5, true);
+            emu->cpu.regs.status |= FLAG_INTERRUPT;
+            advance_state(&emu->cpu, VEC5, true);
             break;
         case VEC5:
-            switch(vec_src)
+            switch(emu->cpu.vec_src)
             {
                 case BRK_VEC:
                 case IRQ_VEC:
-                    tmpval = 0xfffe;
+                    emu->cpu.tmpval = 0xfffe;
                     break;
                 case NMI_VEC:
-                    tmpval = 0xfffa;
+                    emu->cpu.tmpval = 0xfffa;
                     break;
                 case RST_VEC:
-                    tmpval = 0xfffc;
+                    emu->cpu.tmpval = 0xfffc;
                     break;
                 default:
                     break;
             }
-            ea = sys_read_mem(syscxt, tmpval);
-            advance_state(VEC6, true);
+            emu->cpu.ea = bus_read(emu, emu->cpu.tmpval);
+            advance_state(&emu->cpu, VEC6, true);
             break;
         case VEC6:
-            ea |= (uint16_t)sys_read_mem(syscxt, tmpval+1) << 8;
-            pc = ea;
-            advance_state(OPCODE, true);
+            emu->cpu.ea |= (uint16_t)bus_read(emu, emu->cpu.tmpval+1) << 8;
+            emu->cpu.regs.pc = emu->cpu.ea;
+            advance_state(&emu->cpu, OPCODE, true);
             break;
         default:
             break;
     }
 }
 
-static void (*addr_handlers[NUM_ADDR_MODES])() =
+static void (*addr_handlers[NUM_ADDR_MODES])(cbemu_t emu) =
 {
     imp,
     acc,
@@ -1945,7 +1904,7 @@ const cpu_addr_mode_t addrtable[256] =
 /* F */     REL, INDY, INDZ, INDY,  ZPX,  ZPX,  ZPX,    ZP,  IMP, ABSY,  IMP, ABSY, ABSX, ABSX, ABSX, ZPREL, /* F */
 };
 
-static void (*optable[256])() =
+static void (*optable[256])(cbemu_t) =
 {
 /*        |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  A  |  B  |  C  |  D  |  E  |  F  |      */
 /* 0 */      brk,  ora,  nop,  nop,  tsb,  ora,  asl,  rmb,  ph_,  ora,  asl,  nop,  tsb,  ora,  asl,  bbr, /* 0 */
@@ -2015,91 +1974,86 @@ const char *mnemonics[256] =
  *                      memory space as well as check the status of the interrupt vectors.
  * @param reset         Perform a reset6502 as well as initialization.
  */
-void cpu_init(sys_cxt_t system_cxt, bool reset)
+bool cpu_init(cbemu_t emu)
 {
-    if(system_cxt == NULL)
-        return;
+    memset(&emu->cpu, 0, sizeof(emu->cpu));
+    emu->cpu.init = true;
 
-    syscxt = system_cxt;
-    tick_callback = NULL;
-
-    if(reset)
-        cpu_reset();
+    return true;
 }
 
-void cpu_tick(void)
+void cpu_tick(cbemu_t emu)
 {
-    cycle_consumed = false;
+    emu->cpu.cycle_consumed = false;
 
-    while(!cycle_consumed)
+    while(!emu->cpu.cycle_consumed)
     {
-        if(op_state == OPCODE)
+        if(emu->cpu.op_state == OPCODE)
         {
-            if(sys_check_interrupt(syscxt, true))
+            if(emu->cpu.nmi_edge)
             {
-                vec_src = NMI_VEC;
-                op_state = VEC0;
+                emu->cpu.nmi_edge = false;
+                emu->cpu.vec_src = NMI_VEC;
+                emu->cpu.op_state = VEC0;
             }
-            else if(sys_check_interrupt(syscxt, false) && !(status & FLAG_INTERRUPT))
+            else if((emu->cpu.irq_votes > 0) && !(emu->cpu.regs.status & FLAG_INTERRUPT))
             {
-                vec_src = IRQ_VEC;
-                op_state = VEC0;
+                emu->cpu.vec_src = IRQ_VEC;
+                emu->cpu.op_state = VEC0;
             }
             else
             {
-                opcode = sys_read_mem(syscxt, pc++);
-                cycle_consumed = true;
-                op_state = PARAM0;
+                emu->cpu.opcode = bus_read(emu, emu->cpu.regs.pc++);
+                emu->cpu.cycle_consumed = true;
+                emu->cpu.op_state = PARAM0;
             }
         }
-        else if(op_state < OP0)
+        else if(emu->cpu.op_state < OP0)
         {
-            (*addr_handlers[addrtable[opcode]])();
+            (*addr_handlers[addrtable[emu->cpu.opcode]])(emu);
         }
-        else if(op_state < VEC0)
+        else if(emu->cpu.op_state < VEC0)
         {
-            (*optable[opcode])();
+            (*optable[emu->cpu.opcode])(emu);
         }
         else
         {
-            vector();
+            vector(emu);
         }
     }
 
-    if(tick_callback)
-        tick_callback(1);
+    /* TODO here is up a level? */
+    clock_main_tick(&emu->clk);
 
-    cycle_consumed = false;
+    emu->cpu.cycle_consumed = false;
 }
 
-uint8_t cpu_step()
+uint8_t cpu_step(cbemu_t emu)
 {
     uint32_t elapsed = 0;
 
     /* If we are synced on the start the next opcode, go ahead and
      * tick once to read the opcode. Otherwise, skip this and just
      * loop until the current op is finished. */
-    if(op_state == OPCODE)
+    if(emu->cpu.op_state == OPCODE)
     {
-        cpu_tick();
+        cpu_tick(emu);
         ++elapsed;
     }
 
-    while(op_state != OPCODE)
+    while(emu->cpu.op_state != OPCODE)
     {
-        cpu_tick();
+        cpu_tick(emu);
         ++elapsed;
     }
-
-
-    instructions++;
 
     return (uint8_t)elapsed;
 }
+#if 0
 
 void cpu_disassemble(size_t bufLen, char *buffer)
 {
-    cpu_disassemble_at(pc, bufLen, buffer);
+    cpu_disassemble_at(emu->cpu.regs.pc, bufLen, buffer);
 }
 
 void cpu_disassemble_at(uint16_t addr, size_t buf_len, char *buffer)
@@ -2230,3 +2184,4 @@ void cpu_set_tick_callback(cpu_tick_cb_t callback)
 {
     tick_callback = callback;
 }
+#endif
