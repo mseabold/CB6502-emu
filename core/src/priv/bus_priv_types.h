@@ -7,6 +7,7 @@
 /** Internal Bus context structure */
 typedef struct bus_s
 {
+    bool init;              /**< Indicates if the bus context has been initialized. */
     listnode_t connlist;    /**< List of registered bus connections. */
     listnode_t tracelist;   /**< List of regisrered trace callbacks. */
 } bus_t;

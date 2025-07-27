@@ -95,7 +95,11 @@ bool clock_init(clk_cxt_t *cxt, clk_freq_t mainClkFreq)
     list_init(&cxt->clks);
     cxt->mainClk = clock_alloc_clk(mainClkFreq);
 
-    return (cxt->mainClk != NULL);
+    result = (cxt->mainClk != NULL);
+
+    cxt->init = result;
+
+    return result;
 }
 
 /**
@@ -105,7 +109,7 @@ bool clock_init(clk_cxt_t *cxt, clk_freq_t mainClkFreq)
  */
 void clock_cleanup(clk_cxt_t *cxt)
 {
-    if(cxt != NULL)
+    if((cxt != NULL) && (cxt->init))
     {
         list_free(&cxt->clks, clock_list_free_cb, NULL);
 

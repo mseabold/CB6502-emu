@@ -30,6 +30,7 @@ struct clk_s
  */
 typedef struct clk_cxt_s
 {
+    bool init;          /**< Indicates if the clock context has been initialized. */
     listnode_t clks;    /**< List head for registered clocks list. This is always sorted for lowest to highest remaining ticks. */
     clk_t mainClk;      /**< Main bus clock */
 } clk_cxt_t;
