@@ -154,37 +154,37 @@ static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek)
 /**
  * Internal function to initialize a bus instance
  *
- * @param[in] bus   Bus instance to initialize
+ * @param[in] emu   Emulator context
  *
  * @return true if initialization is successful
  */
-bool bus_init(bus_t *bus)
+bool bus_init(cbemu_t emu)
 {
-    bool ret = true;
+    bus_t *bus = &emu->bus;
 
-    if(bus != NULL)
-    {
-        list_init(&bus->connlist);
-        list_init(&bus->tracelist);
-    }
-    else
-    {
-        ret = false;
-    }
+    list_init(&bus->connlist);
+    list_init(&bus->tracelist);
+    bus->init = true;
 
-    return ret;
+    return true;
 }
 
 /**
  * Internal function to clean up a bus instance
  *
- * @param[in] bus   Bus instance to clean up
+ * @param[in] emu   Emulator context
  */
-void bus_cleanup(bus_t *bus)
+void bus_cleanup(cbemu_t emu)
 {
+    bus_t *bus = &emu->bus;
     bus_conn_t *conn;
     bus_tracer_t *tracer;
     listnode_t *tail;
+
+    if(!bus->init)
+    {
+        return;
+    }
 
     while(!list_empty(&bus->connlist))
     {
@@ -214,13 +214,15 @@ void bus_cleanup(bus_t *bus)
  * to decode the address and perform a read operation with any registered bus connection.
  * This is a committed read operation, i.e. what would occur on the falling edge of PHI2.
  *
- * @param[in] bus   Bus instance to perform the read on
+ * @param[in] emu   Emulator context
  * @param[in] addr  Address to read on the bus
  *
  * @return The bus value returned at the given address
  */
-uint8_t bus_read(bus_t *bus, uint16_t addr)
+uint8_t bus_read(cbemu_t emu, uint16_t addr)
 {
+    bus_t *bus = &emu->bus;
+
     return bus_read_peek_i(bus, addr, false);
 }
 
@@ -230,13 +232,15 @@ uint8_t bus_read(bus_t *bus, uint16_t addr)
  * without triggering any read-triggered events (such as auto-clearing of interrupt or status
  * bits on read).
  *
- * @param[in] bus   Bus instance to peform the peek on
+ * @param[in] emu   Emulator context
  * @param[in] addr  Address to read on the bus
  *
  * @return The bus value returned at the given address
  */
-uint8_t bus_peek(bus_t *bus, uint16_t addr)
+uint8_t bus_peek(cbemu_t emu, uint16_t addr)
 {
+    bus_t *bus = &emu->bus;
+
     return bus_read_peek_i(bus, addr, true);
 }
 
@@ -244,12 +248,13 @@ uint8_t bus_peek(bus_t *bus, uint16_t addr)
  * Internal bus access function to perfrom a write operation. This will attempt
  * to decode the address and write the given value to the appropriate bus connection.
  *
- * @param[in] bus   Bus instance to perform the write on
+ * @param[in] emu   Emulator context
  * @param[in] addr  Address to write on the bus
  * @param[in] value Value to write to the given address
  */
-void bus_write(bus_t *bus, uint16_t addr, uint8_t value)
+void bus_write(cbemu_t emu, uint16_t addr, uint8_t value)
 {
+    bus_t *bus = &emu->bus;
     listnode_t *cur;
     bus_conn_t *conn;
     bus_tracer_t *tracer;

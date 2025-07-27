@@ -123,10 +123,10 @@ void test_unregister(void)
 
     handle = emu_bus_register(&emu, &params, &handlers, NULL);
     TEST_ASSERT_NOT_NULL(handle);
-    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu.bus, 0x1000));
+    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu, 0x1000));
 
     emu_bus_unregister(&emu, handle);
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x1000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x1000));
 }
 
 void test_bus_range(void)
@@ -144,18 +144,18 @@ void test_bus_range(void)
     TEST_ASSERT_NOT_NULL(handle);
 
     /* Check bus returns expected value within range. */
-    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu.bus, 0x2800));
+    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu, 0x2800));
 
     /* Check beginning boundary. */
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x1FFF));
-    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu.bus, 0x2000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x1FFF));
+    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu, 0x2000));
 
     /* Check end boundary. */
-    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu.bus, 0x2FFF));
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x3000));
+    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu, 0x2FFF));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x3000));
 
     /* Check bus returns default value (FF) out of range. */
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x8000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x8000));
 }
 
 void test_bus_mask(void)
@@ -173,8 +173,8 @@ void test_bus_mask(void)
 
     expectedVal = 0xAA;
 
-    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu.bus, 0x8000));
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x0000));
+    TEST_ASSERT_EQUAL_UINT8(expectedVal, bus_read(&emu, 0x8000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x0000));
 }
 
 void test_register_unregister_mult(void)
@@ -193,8 +193,8 @@ void test_register_unregister_mult(void)
     handle1 = emu_bus_register(&emu, &params, &handlers, &exp1);
     TEST_ASSERT_NOT_NULL(handle1);
 
-    TEST_ASSERT_EQUAL_UINT8(0x55, bus_read(&emu.bus, 0x2000));
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x9000));
+    TEST_ASSERT_EQUAL_UINT8(0x55, bus_read(&emu, 0x2000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x9000));
 
     params.type = BUSDECODE_RANGE;
     params.value.range.addr_start = 0x8000;
@@ -203,18 +203,18 @@ void test_register_unregister_mult(void)
     handle2 = emu_bus_register(&emu, &params, &handlers, &exp2);
     TEST_ASSERT_NOT_NULL(handle2);
 
-    TEST_ASSERT_EQUAL_UINT8(0x55, bus_read(&emu.bus, 0x2000));
-    TEST_ASSERT_EQUAL_UINT8(0xAA, bus_read(&emu.bus, 0x9000));
+    TEST_ASSERT_EQUAL_UINT8(0x55, bus_read(&emu, 0x2000));
+    TEST_ASSERT_EQUAL_UINT8(0xAA, bus_read(&emu, 0x9000));
 
     emu_bus_unregister(&emu, handle1);
 
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x2000));
-    TEST_ASSERT_EQUAL_UINT8(0xAA, bus_read(&emu.bus, 0x9000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x2000));
+    TEST_ASSERT_EQUAL_UINT8(0xAA, bus_read(&emu, 0x9000));
 
     emu_bus_unregister(&emu, handle2);
 
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x2000));
-    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu.bus, 0x9000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x2000));
+    TEST_ASSERT_EQUAL_UINT8(0xFF, bus_read(&emu, 0x9000));
 }
 
 void test_tracer(void)
@@ -244,16 +244,16 @@ void test_tracer(void)
     expEntries[0].addr = 0x1000;
     expEntries[0].val = expectedVal;
     expEntries[0].write = false;
-    bus_read(&emu.bus, 0x1000);
+    bus_read(&emu, 0x1000);
 
     expEntries[1].addr = 0x2000;
     expEntries[1].val = 0x55;
     expEntries[1].write = true;
-    bus_write(&emu.bus, 0x2000, 0x55);
+    bus_write(&emu, 0x2000, 0x55);
 
     emu_bus_remove_tracer(&emu, handle);
 
-    bus_write(&emu.bus, 0xA5A5, 0xFF);
+    bus_write(&emu, 0xA5A5, 0xFF);
 
     TEST_ASSERT_EQUAL_UINT8(2, log.num_entries);
 
@@ -267,12 +267,12 @@ void test_tracer(void)
 
 void setUp(void)
 {
-    bus_init(&emu.bus);
+    bus_init(&emu);
 }
 
 void tearDown(void)
 {
-    bus_cleanup(&emu.bus);
+    bus_cleanup(&emu);
 }
 
 int main(int argc, char *argv[])
