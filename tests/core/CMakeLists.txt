@@ -1,6 +1,7 @@
 add_executable(bus_tester bus_tester.c)
 add_executable(clock_tester clock_tester.c)
 add_executable(cpu_unit_tester cpu_unit_tester.c)
+add_executable(cpu_bin_tester cpu_bin_tester.c cpu_bin_tests.c)
 
 add_library(cbemu_priv INTERFACE)
 
@@ -27,7 +28,13 @@ target_link_libraries(cpu_unit_tester
     cbemu_priv
 )
 
+target_link_libraries(cpu_bin_tester
+    unity::framework
+    cbemu
+    cbemu_priv
+)
+
 add_test(NAME bus_tester COMMAND bus_tester)
 add_test(NAME clock_tester COMMAND clock_tester)
 add_test(NAME cpu_unit_tester COMMAND cpu_unit_tester)
-
+add_test(NAME cpu_bin_tester COMMAND cpu_bin_tester WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tests/core/cpu_asm_tests/bin)

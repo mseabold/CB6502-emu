@@ -2198,3 +2198,14 @@ void cpu_set_tick_callback(cpu_tick_cb_t callback)
     tick_callback = callback;
 }
 #endif
+
+
+uint16_t cpu_get_pc(cbemu_t emu)
+{
+    return emu->cpu.regs.pc;
+}
+
+bool cpu_is_sync(cbemu_t emu)
+{
+    return emu->cpu.op_state == OPCODE;
+}
