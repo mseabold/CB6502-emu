@@ -9,6 +9,7 @@ typedef struct
     uint16_t addr;
     uint8_t value;
     bool write;
+    bus_flags_t flags;
 } bus_log_entry_t;
 
 typedef struct
@@ -50,6 +51,7 @@ static void log_tracer_cb(uint16_t addr, uint8_t value, bool write, bus_flags_t 
     entry->addr = addr;
     entry->value = value;
     entry->write = write;
+    entry->flags = flags;
 }
 
 void test_init_rst(void)
@@ -96,6 +98,14 @@ void test_init_rst(void)
     TEST_ASSERT_FALSE(log.entries[6].write);
     TEST_ASSERT_FALSE(log.entries[7].write);
     TEST_ASSERT_EQUAL_UINT16(0x55AA, log.entries[7].addr);
+
+    /* The final (opcode) cycle should have SYNC flag set. */
+    TEST_ASSERT_BITS_HIGH(SYNC, log.entries[7].flags);
+
+    /* Tick an additional time and ensure SYNC flag was cleared. */
+    cpu_tick(emu);
+
+    TEST_ASSERT_BITS_LOW(SYNC, log.entries[8].flags);
 }
 
 void setUp(void)
