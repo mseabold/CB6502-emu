@@ -32,6 +32,20 @@ void bus_cleanup(cbemu_t emu);
 uint8_t bus_read(cbemu_t emu, uint16_t addr);
 
 /**
+ * Internal bus access function to perform a bus read operation. This will attempt
+ * to decode the address and perform a read operation with any registered bus connection.
+ * This is a committed read operation, i.e. what would occur on the falling edge of PHI2.
+ * This should only be used for reads that would occur that also assert the SYNC pin, which
+ * is during opcode fetch.
+ *
+ * @param[in] emu   Emulator context
+ * @param[in] addr  Address to read on the bus
+ *
+ * @return The bus value returned at the given address
+ */
+uint8_t bus_sync_read(cbemu_t emu, uint16_t addr);
+
+/**
  * Internal bus access function to read from a given address without actually committing a read
  * operation (PHI2 tick). This is can be useful for debugging or poking the state of the system
  * without triggering any read-triggered events (such as auto-clearing of interrupt or status

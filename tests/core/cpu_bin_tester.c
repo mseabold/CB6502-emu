@@ -30,7 +30,7 @@ static bus_log_t buslog;
 static bool in_opcode;
 static FILE *testfile;
 
-static void write_mem(uint16_t addr, uint8_t val, void *userdata)
+static void write_mem(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
 {
     if(in_opcode && buslog.log_cnt < BUSLOG_MAX)
     {
@@ -43,7 +43,7 @@ static void write_mem(uint16_t addr, uint8_t val, void *userdata)
     memory[addr] = val;
 }
 
-static uint8_t read_mem(uint16_t addr, void *userdata)
+static uint8_t read_mem(uint16_t addr, bus_flags_t flags, void *userdata)
 {
     if(in_opcode && buslog.log_cnt < BUSLOG_MAX)
     {
@@ -55,7 +55,7 @@ static uint8_t read_mem(uint16_t addr, void *userdata)
     return memory[addr];
 }
 
-static uint8_t peek_mem(uint16_t addr, void *userdata)
+static uint8_t peek_mem(uint16_t addr, bus_flags_t flags, void *userdata)
 {
     return memory[addr];
 }

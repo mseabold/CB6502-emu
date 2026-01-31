@@ -21,7 +21,7 @@ struct cbemu_s emu;
 uint8_t expectedVal;
 uint8_t writtenVal;
 
-static void write_cb(uint16_t addr, uint8_t val, void *userdata)
+static void write_cb(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
 {
     if(userdata != NULL)
     {
@@ -33,7 +33,7 @@ static void write_cb(uint16_t addr, uint8_t val, void *userdata)
     }
 }
 
-static uint8_t read_cb(uint16_t addr, void *userdata)
+static uint8_t read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
 {
     if(userdata != NULL)
     {
@@ -49,7 +49,7 @@ static bus_handlers_t handlers = {
     read_cb
 };
 
-static void trace_cb(uint16_t addr, uint8_t value, bool write, void *param)
+static void trace_cb(uint16_t addr, uint8_t value, bool write, bus_flags_t flags, void *param)
 {
     trace_log_t *log;
 

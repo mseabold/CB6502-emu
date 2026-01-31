@@ -23,7 +23,7 @@ typedef struct bus_tracer_s
 
 static bool bus_match_addr(bus_decode_params_t *params, uint16_t addr, bool write, void *userdata);
 static bool bus_validate_params(const bus_decode_params_t *params);
-static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek);
+static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek, bool sync);
 
 /**
  * Determines if a given bus connection parameters matches a given address
@@ -94,10 +94,11 @@ static bool bus_validate_params(const bus_decode_params_t *params)
  * @param[in] bus   The bus instance
  * @param[in] addr  Address to read or peek
  * @param[in] peek  Indicates whether this is read or peek
+ * @param[in] sync  Indicates whether this is a sync (opcode) read
  *
  * @return The result of the read or peek operation
  */
-static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek)
+static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek, bool sync)
 {
     uint8_t ret;
     uint8_t conn_read_val;
@@ -117,7 +118,7 @@ static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek)
 
             if(cb)
             {
-                conn_read_val = cb(addr, conn->userdata);
+                conn_read_val = cb(addr, sync ? SYNC : 0, conn->userdata);
 
                 if((matched) && (conn_read_val != ret))
                 {
@@ -144,7 +145,7 @@ static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek)
         {
             tracer = list_container(cur, bus_tracer_t, list);
 
-            tracer->callback(addr, ret, false, tracer->userdata);
+            tracer->callback(addr, ret, false, sync ? SYNC : 0, tracer->userdata);
         }
     }
 
@@ -223,7 +224,26 @@ uint8_t bus_read(cbemu_t emu, uint16_t addr)
 {
     bus_t *bus = &emu->bus;
 
-    return bus_read_peek_i(bus, addr, false);
+    return bus_read_peek_i(bus, addr, false, false);
+}
+
+/**
+ * Internal bus access function to perform a bus read operation. This will attempt
+ * to decode the address and perform a read operation with any registered bus connection.
+ * This is a committed read operation, i.e. what would occur on the falling edge of PHI2.
+ * This should only be used for reads that would occur that also assert the SYNC pin, which
+ * is during opcode fetch.
+ *
+ * @param[in] emu   Emulator context
+ * @param[in] addr  Address to read on the bus
+ *
+ * @return The bus value returned at the given address
+ */
+uint8_t bus_sync_read(cbemu_t emu, uint16_t addr)
+{
+    bus_t *bus = &emu->bus;
+
+    return bus_read_peek_i(bus, addr, false, true);
 }
 
 /**
@@ -241,7 +261,7 @@ uint8_t bus_peek(cbemu_t emu, uint16_t addr)
 {
     bus_t *bus = &emu->bus;
 
-    return bus_read_peek_i(bus, addr, true);
+    return bus_read_peek_i(bus, addr, true, false);
 }
 
 /**
@@ -268,7 +288,7 @@ void bus_write(cbemu_t emu, uint16_t addr, uint8_t value)
         {
             if(conn->handlers.write)
             {
-                conn->handlers.write(addr, value, conn->userdata);
+                conn->handlers.write(addr, value, 0, conn->userdata);
             }
         }
     }
@@ -277,7 +297,7 @@ void bus_write(cbemu_t emu, uint16_t addr, uint8_t value)
     {
         tracer = list_container(cur, bus_tracer_t, list);
 
-        tracer->callback(addr, value, true, tracer->userdata);
+        tracer->callback(addr, value, true, 0, tracer->userdata);
     }
 }
 

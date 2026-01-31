@@ -2016,7 +2016,7 @@ void cpu_tick(cbemu_t emu)
             }
             else
             {
-                emu->cpu.opcode = bus_read(emu, emu->cpu.regs.pc++);
+                emu->cpu.opcode = bus_sync_read(emu, emu->cpu.regs.pc++);
                 emu->cpu.cycle_consumed = true;
                 emu->cpu.op_state = PARAM0;
             }

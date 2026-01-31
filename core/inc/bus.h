@@ -54,6 +54,12 @@ typedef struct
 /** Handle for register bus callback */
 typedef void *bus_cb_handle_t;
 
+/** Enum defining the possible flags in a bus handler/tracer callback. */
+typedef enum
+{
+    SYNC = 0x01, /**< Used during a read operation to denote the SYNC pin would be high on the 6502 bus. */
+} bus_flags_t;
+
 /**
  * Bus write callback.
  *
@@ -61,7 +67,7 @@ typedef void *bus_cb_handle_t;
  * @param value[in] Value to write to the specified address
  * @param userdata[in] Userdata supplied by the callback owner
  */
-typedef void (*bus_write_cb_t)(uint16_t addr, uint8_t value, void *userdata);
+typedef void (*bus_write_cb_t)(uint16_t addr, uint8_t value, bus_flags_t flags, void *userdata);
 
 /**
  * Bus read callback
@@ -71,7 +77,7 @@ typedef void (*bus_write_cb_t)(uint16_t addr, uint8_t value, void *userdata);
  *
  * @return Value read at specified address
  */
-typedef uint8_t (*bus_read_cb_t)(uint16_t addr, void *userdata);
+typedef uint8_t (*bus_read_cb_t)(uint16_t addr, bus_flags_t flags, void *userdata);
 
 /**
  * Bus trace debug callback. This can be registered to trace memory operations without actually
@@ -82,7 +88,7 @@ typedef uint8_t (*bus_read_cb_t)(uint16_t addr, void *userdata);
  * @param write[in] Indicates whether the operation is a read or write operation.
  * @param param[in] User-supplied param given when the callback was registered
  */
-typedef void (*bus_trace_cb_t)(uint16_t addr, uint8_t value, bool write, void *param);
+typedef void (*bus_trace_cb_t)(uint16_t addr, uint8_t value, bool write, bus_flags_t flags, void *param);
 
 /** Container for bus callback functions */
 typedef struct

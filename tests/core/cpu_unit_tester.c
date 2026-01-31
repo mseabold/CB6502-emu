@@ -21,7 +21,7 @@ typedef struct
 static cbemu_t emu;
 static const emu_config_t config = { 1000000 };
 
-static uint8_t rst_vec_read_cb(uint16_t addr, void *userdata)
+static uint8_t rst_vec_read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
 {
     if(addr == 0xfffc)
         return 0xAA;
@@ -36,7 +36,7 @@ static const bus_handlers_t rst_vec_handlers = {
     NULL
 };
 
-static void log_tracer_cb(uint16_t addr, uint8_t value, bool write, void *userdata)
+static void log_tracer_cb(uint16_t addr, uint8_t value, bool write, bus_flags_t flags, void *userdata)
 {
     bus_log_t *log = (bus_log_t *)userdata;
     bus_log_entry_t *entry;
