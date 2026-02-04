@@ -60,6 +60,20 @@ typedef enum
     SYNC = 0x01, /**< Used during a read operation to denote the SYNC pin would be high on the 6502 bus. */
 } bus_flags_t;
 
+/** Defines the type of signals to the emulator/CPU from the bus that can be controlled externally. */
+typedef enum
+{
+    BUS_SIG_IRQ, /**< Controls the IRQB signal on the 6502 core. */
+    BUS_SIG_NMI, /**< Controls the NMIB signal on the 6502 core. */
+    BUS_SIG_RDY, /**< Controls the RDY signal on the 6502 core. */
+    BUS_SIG_BE, /**< Controls the Bus Enable signal on the 6502 core. */
+} bus_signal_t;
+
+/** Defines the handle type returned when registering a signal voter. */
+typedef uint32_t bus_signal_voter_t;
+
+#define BUS_SIGNAL_INVALID_VOTER (UINT32_MAX)
+
 /**
  * Bus write callback.
  *
@@ -146,5 +160,33 @@ bus_cb_handle_t emu_bus_add_tracer(cbemu_t emu, const bus_trace_cb_t callback, v
  * @oaram[in] handle    Handle of the previously registered callback
  */
 void emu_bus_remove_tracer(cbemu_t emu, bus_cb_handle_t handle);
+
+/**
+ * Registers a bus signal voter with the emulator core
+ *
+ * @param[in] emu       The emulator core
+ *
+ * @return Returns the voter handle to be used when making signal votes
+ *         or BUS_SIGNAL_INVALID_VOTER if no voters are available.
+ */
+bus_signal_voter_t emu_bus_register_sig_voter(cbemu_t emu);
+
+/**
+ * Releases a bus signal voter handle
+ *
+ * @param[in] emu       The emulator core
+ * @param[in] voter     The previously registered handle.
+ */
+void emu_bus_unregister_sig_voter(cbemu_t emu, bus_signal_voter_t voter);
+
+/**
+ * Takes/releases a vote on a given signal for the specified voter.
+ *
+ * @param[in] emu       The emulator core
+ * @param[in] voter     The previously registered voter handle
+ * @param[in] signal    The signal to vote/unvote for
+ * @param[in] voted     Indicates whether to take or release the vote on the signal
+ */
+void emu_bus_sig_vote(cbemu_t emu, bus_signal_voter_t voter, bus_signal_t signal, bool voted);
 
 #endif /* end of include guard: __BUS_API_H__ */

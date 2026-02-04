@@ -1,3 +1,4 @@
+#include <string.h>
 #include <unity/unity.h>
 #include "bus.h"
 #include "emu_priv_types.h"
@@ -265,8 +266,101 @@ void test_tracer(void)
     }
 }
 
+void test_register_voter(void)
+{
+    bus_signal_voter_t voter;
+
+    voter = emu_bus_register_sig_voter(&emu);
+
+    TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, voter);
+}
+
+void test_register_max_voters(void)
+{
+    bus_signal_voter_t set_bits;
+    bus_signal_voter_t ret;
+    uint8_t index;
+
+    set_bits = 0;
+
+    for(index = 0; index < sizeof(bus_signal_voter_t) * 8; index++)
+    {
+        ret = emu_bus_register_sig_voter(&emu);
+
+        TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, ret);
+        TEST_ASSERT_BITS_LOW(ret, set_bits);
+        set_bits |= ret;
+    }
+
+    ret = emu_bus_register_sig_voter(&emu);
+    TEST_ASSERT_EQUAL(BUS_SIGNAL_INVALID_VOTER, ret);
+}
+
+void test_vote_irq(void)
+{
+    bus_signal_voter_t voter, voter2;
+
+    voter = emu_bus_register_sig_voter(&emu);
+    voter2 = emu_bus_register_sig_voter(&emu);
+
+    TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, voter);
+    TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, voter2);
+
+    emu_bus_sig_vote(&emu, voter, BUS_SIG_IRQ, true);
+
+    TEST_ASSERT_BITS_HIGH(voter, emu.bus.sigvotes.irq);
+
+    emu_bus_sig_vote(&emu, voter2, BUS_SIG_IRQ, true);
+
+    TEST_ASSERT_BITS_HIGH(voter | voter2, emu.bus.sigvotes.irq);
+
+    emu_bus_sig_vote(&emu, voter, BUS_SIG_IRQ, false);
+
+    TEST_ASSERT_BITS_LOW(voter, emu.bus.sigvotes.irq);
+    TEST_ASSERT_BITS_HIGH(voter2, emu.bus.sigvotes.irq);
+
+    emu_bus_sig_vote(&emu, voter2, BUS_SIG_IRQ, false);
+
+    TEST_ASSERT_EQUAL(0, emu.bus.sigvotes.irq);
+}
+
+void test_vote_nmi(void)
+{
+    bus_signal_voter_t voter, voter2;
+
+    voter = emu_bus_register_sig_voter(&emu);
+    voter2 = emu_bus_register_sig_voter(&emu);
+
+    TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, voter);
+    TEST_ASSERT_NOT_EQUAL(BUS_SIGNAL_INVALID_VOTER, voter2);
+
+    emu_bus_sig_vote(&emu, voter, BUS_SIG_NMI, true);
+
+    TEST_ASSERT_BITS_HIGH(voter, emu.bus.sigvotes.nmi);
+    TEST_ASSERT_BITS_HIGH(SV_NMI_EDGE_PENDING, emu.bus.sigvotes.flags);
+
+    /* Clear the NMI edge (as if CPU processed it). */
+    emu.bus.sigvotes.flags &= ~SV_NMI_EDGE_PENDING;
+
+    emu_bus_sig_vote(&emu, voter2, BUS_SIG_NMI, true);
+    TEST_ASSERT_BITS_HIGH(voter2, emu.bus.sigvotes.nmi);
+
+    /* Edge should not be set again when a second high vote comes in with it already voted. */
+    TEST_ASSERT_BITS_LOW(SV_NMI_EDGE_PENDING, emu.bus.sigvotes.flags);
+
+    emu_bus_sig_vote(&emu, voter, BUS_SIG_NMI, false);
+    emu_bus_sig_vote(&emu, voter2, BUS_SIG_NMI, false);
+    TEST_ASSERT_EQUAL(0, emu.bus.sigvotes.nmi);
+
+    emu_bus_sig_vote(&emu, voter, BUS_SIG_NMI, true);
+
+    /* After going low, edge bit should be set again now. */
+    TEST_ASSERT_BITS_HIGH(SV_NMI_EDGE_PENDING, emu.bus.sigvotes.flags);
+}
+
 void setUp(void)
 {
+    memset(&emu, 0, sizeof(emu));
     bus_init(&emu);
 }
 
@@ -287,5 +381,9 @@ int main(int argc, char *argv[])
     RUN_TEST(test_bus_mask);
     RUN_TEST(test_register_unregister_mult);
     RUN_TEST(test_tracer);
+    RUN_TEST(test_register_voter);
+    RUN_TEST(test_register_max_voters);
+    RUN_TEST(test_vote_irq);
+    RUN_TEST(test_vote_nmi);
     return UNITY_END();
 }

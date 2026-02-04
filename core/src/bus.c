@@ -4,6 +4,8 @@
 #include "bus.h"
 #include "log.h"
 
+#define MAX_SIG_VOTERS  (sizeof(bus_signal_voter_t) * 8)
+
 /** Tracking structure for a bus connection. */
 typedef struct bus_conn_s
 {
@@ -400,5 +402,106 @@ void emu_bus_remove_tracer(cbemu_t emu, bus_cb_handle_t handle)
         list_remove(&tracer->list);
 
         free(tracer);
+    }
+}
+
+/**
+ * Registers a bus signal voter with the emulator core
+ *
+ * @return Returns the voter handle to be used when making signal votes
+ *         or BUS_SIGNAL_INVALID_VOTER if no voters are available.
+ */
+bus_signal_voter_t emu_bus_register_sig_voter(cbemu_t emu)
+{
+    bus_signal_voter_t voter = BUS_SIGNAL_INVALID_VOTER;
+    bus_signal_voter_t test_mask;
+    uint8_t index;
+
+    if(emu == NULL)
+    {
+        return voter;
+    }
+
+    for(index = 0; index < MAX_SIG_VOTERS; index++)
+    {
+        test_mask = (1 << index);
+        if((emu->bus.sigvotes.allocated & test_mask) == 0)
+        {
+            emu->bus.sigvotes.allocated |= test_mask;
+            voter = test_mask;
+            break;
+        }
+    }
+
+    return voter;
+}
+
+/**
+ * Releases a bus signal voter handle
+ *
+ * @param[in] voter     The previously registered handle.
+ */
+void emu_bus_unregister_sig_voter(cbemu_t emu, bus_signal_voter_t voter)
+{
+    if(emu == NULL)
+    {
+        return;
+    }
+
+    emu->bus.sigvotes.allocated &= ~voter;
+}
+
+/**
+ * Takes/releases a vote on a given signal for the specified voter.
+ *
+ * @param[in] voter     The previously registered voter handle
+ * @param[in] signal    The signal to vote/unvote for
+ * @param[in] voted     Indicates whether to take or release the vote on the signal
+ */
+void emu_bus_sig_vote(cbemu_t emu, bus_signal_voter_t voter, bus_signal_t signal, bool voted)
+{
+    bus_signal_voter_t *mask;
+    bus_sigvotes_t *sigvotes;
+
+    if((emu == NULL) || ((emu->bus.sigvotes.allocated & voter) == 0))
+    {
+        return;
+    }
+
+    sigvotes = &emu->bus.sigvotes;
+
+    switch(signal)
+    {
+        case BUS_SIG_IRQ:
+            mask = &sigvotes->irq;
+            break;
+        case BUS_SIG_NMI:
+            mask = &sigvotes->nmi;
+
+            if(voted && (sigvotes->nmi == 0))
+            {
+                /* If this is the first vote for NMI, flag the rising edge. CPU core only detects the
+                 * edge of NMI. */
+                sigvotes->flags |= SV_NMI_EDGE_PENDING;
+            }
+            break;
+        case BUS_SIG_RDY:
+            mask = &sigvotes->rdy;
+            break;
+        case BUS_SIG_BE:
+            mask = &sigvotes->be;
+            break;
+        default:
+            /* Signal not known, so do not process it. */
+            return;
+    }
+
+    if(voted)
+    {
+        *mask |= voter;
+    }
+    else
+    {
+        *mask &= ~voter;
     }
 }
