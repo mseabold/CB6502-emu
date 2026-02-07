@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include "bus_priv_types.h"
 #include "cpu_priv.h"
 #include "bus_priv.h"
 #include "clock_priv.h"
@@ -2003,13 +2004,13 @@ void cpu_tick(cbemu_t emu)
     {
         if(emu->cpu.op_state == OPCODE)
         {
-            if(emu->cpu.nmi_edge)
+            if(emu->bus.sigvotes.flags & SV_NMI_EDGE_PENDING)
             {
-                emu->cpu.nmi_edge = false;
+                emu->bus.sigvotes.flags &= ~SV_NMI_EDGE_PENDING;
                 emu->cpu.vec_src = NMI_VEC;
                 emu->cpu.op_state = VEC0;
             }
-            else if((emu->cpu.irq_votes > 0) && !(emu->cpu.regs.status & FLAG_INTERRUPT))
+            else if((emu->bus.sigvotes.irq > 0) && !(emu->cpu.regs.status & FLAG_INTERRUPT))
             {
                 emu->cpu.vec_src = IRQ_VEC;
                 emu->cpu.op_state = VEC0;

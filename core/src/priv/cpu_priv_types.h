@@ -64,10 +64,6 @@ typedef struct cpu_s
     bool cycle_consumed;
     cpu_vec_src_t vec_src;
     op_state_t op_state;
-    uint8_t nmi_votes;
-    uint8_t irq_votes;
-    uint8_t rst_votes;
-    bool nmi_edge;
 } cpu_t;
 
 #endif /* end of include guard: __CPU_PRIV_TYPES_H__ */
