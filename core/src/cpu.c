@@ -7,7 +7,6 @@
  * http://rubbermallet.org/fake6502.c
  */
 
-#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include "bus_priv_types.h"
@@ -134,7 +133,7 @@ static const uint8_t branch_shift_map[] = {
 
 static inline void advance_state(cpu_t *cpu, op_state_t new_state, bool memcycle)
 {
-    cpu->cycle_consumed = memcycle;
+    CPU_SET_FLAG(cpu, CPU_CYCLE_CONSUMED);
     cpu->op_state = new_state;
 }
 
@@ -270,7 +269,7 @@ static void absx(cbemu_t emu)
         {
             /* Absolute address crossed pages. We need to eat one more penalty
              * cycle. */
-            emu->cpu.page_boundary = true;
+            CPU_SET_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY);
             advance_state(&emu->cpu, PARAM2, true);
         }
         else
@@ -308,7 +307,7 @@ static void absy(cbemu_t emu)
         {
             /* Absolute address crossed pages. We need to eat one more penalty
              * cycle. */
-            emu->cpu.page_boundary = true;
+            CPU_SET_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY);
             advance_state(&emu->cpu, PARAM2, true);
         }
         else
@@ -408,7 +407,7 @@ static void indy(cbemu_t emu)
 
             if(startpage != (emu->cpu.ea & 0xFF00))
             {
-                emu->cpu.page_boundary = true;
+                CPU_SET_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY);
                 advance_state(&emu->cpu, PARAM3, true);
             }
             else
@@ -842,7 +841,7 @@ static void dec(cbemu_t emu)
             /* There is a fixed penalty cycle here for some addressing modes. For a page boundary,
              * it has already been consumed. If not, we need to consumed it here with an additonal
              * EA read. */
-            if(addrtable[emu->cpu.opcode] == ABSX && !emu->cpu.page_boundary)
+            if(addrtable[emu->cpu.opcode] == ABSX && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
             {
                 (void)bus_read(emu, emu->cpu.ea);
                 advance_state(&emu->cpu, OP1, true);
@@ -927,7 +926,7 @@ static void inc(cbemu_t emu)
             /* There is a fixed penalty cycle here for some addressing modes. For a page boundary,
              * it has already been consumed. If not, we need to consumed it here with an additonal
              * EA read. */
-            if(addrtable[emu->cpu.opcode] == ABSX && !emu->cpu.page_boundary)
+            if(addrtable[emu->cpu.opcode] == ABSX && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
             {
                 (void)bus_read(emu, emu->cpu.ea);
                 advance_state(&emu->cpu, OP1, true);
@@ -1405,13 +1404,13 @@ static void sta(cbemu_t emu)
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
+        if((mode == ABSX || mode == ABSY) && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
         {
             /* The extra cycle reads the eventual write address. */
             (void)bus_read(emu, emu->cpu.ea);
             advance_state(&emu->cpu, OP1, true);
         }
-        else if(mode == INDY && !emu->cpu.page_boundary)
+        else if(mode == INDY && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
         {
             /* Another special penalty op. This team, re-read the second zp
              * address. This shoudl still be in emu->cpu.tmpval. */
@@ -1443,7 +1442,7 @@ static void stx(cbemu_t emu)
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
+        if((mode == ABSX || mode == ABSY) && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
         {
             /* The extra cycle reads the eventual write address. */
             (void)bus_read(emu, emu->cpu.ea);
@@ -1474,7 +1473,7 @@ static void sty(cbemu_t emu)
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
+        if((mode == ABSX || mode == ABSY) && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
         {
             /* The extra cycle reads the eventual write address. */
             (void)bus_read(emu, emu->cpu.ea);
@@ -1505,7 +1504,7 @@ static void stz(cbemu_t emu)
          * crossing. However, if a page crossing occurred, this cycle has already
          * been handled by the address mode handler.
          */
-        if((mode == ABSX || mode == ABSY) && !emu->cpu.page_boundary)
+        if((mode == ABSX || mode == ABSY) && !CPU_CHECK_FLAG(&emu->cpu, CPU_PAGE_BOUNDARY))
         {
             /* The extra cycle reads the eventual write address. */
             (void)bus_read(emu, emu->cpu.ea);
@@ -1998,9 +1997,17 @@ bool cpu_init(cbemu_t emu)
 
 void cpu_tick(cbemu_t emu)
 {
-    emu->cpu.cycle_consumed = false;
+    CPU_CLEAR_FLAG(&emu->cpu, CPU_CYCLE_CONSUMED);
 
-    while(!emu->cpu.cycle_consumed)
+    if(emu->bus.sigvotes.rdy > 0)
+    {
+        /* If ready is de-asserted, then we need to hold the CPU state. The last bus operation
+         * will simply be repeated and the CPU will take no action. */
+        bus_replay(emu);
+        return;
+    }
+
+    while(!CPU_CHECK_FLAG(&emu->cpu, CPU_CYCLE_CONSUMED))
     {
         if(emu->cpu.op_state == OPCODE)
         {
@@ -2018,7 +2025,7 @@ void cpu_tick(cbemu_t emu)
             else
             {
                 emu->cpu.opcode = bus_sync_read(emu, emu->cpu.regs.pc++);
-                emu->cpu.cycle_consumed = true;
+                CPU_SET_FLAG(&emu->cpu, CPU_CYCLE_CONSUMED);
                 emu->cpu.op_state = PARAM0;
             }
         }
@@ -2039,7 +2046,7 @@ void cpu_tick(cbemu_t emu)
     /* TODO here is up a level? */
     clock_main_tick(&emu->clk);
 
-    emu->cpu.cycle_consumed = false;
+    CPU_CLEAR_FLAG(&emu->cpu, CPU_CYCLE_CONSUMED);
 }
 
 uint8_t cpu_step(cbemu_t emu)

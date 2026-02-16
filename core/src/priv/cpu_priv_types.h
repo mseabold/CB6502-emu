@@ -50,6 +50,14 @@ typedef enum {
     VEC6,
 } op_state_t;
 
+typedef enum
+{
+    CPU_PAGE_BOUNDARY = 0x01,
+    CPU_CYCLE_CONSUMED = 0x02,
+    CPU_WAI_PENDING = 0x04
+}
+cpu_flags_t;
+
 typedef struct cpu_s
 {
     bool init;
@@ -60,10 +68,13 @@ typedef struct cpu_s
     uint16_t result;
     uint8_t opcode;
     uint16_t tmpval;
-    bool page_boundary;
-    bool cycle_consumed;
     cpu_vec_src_t vec_src;
     op_state_t op_state;
+    cpu_flags_t flags;
 } cpu_t;
+
+#define CPU_SET_FLAG(_cpu, _flag)       ((_cpu)->flags | (_flag))
+#define CPU_CHECK_FLAG(_cpu, _flag)     (((_cpu)->flags & (_flag)) != 0)
+#define CPU_CLEAR_FLAG(_cpu, _flag)     ((_cpu)->flags &= ~(_flag))
 
 #endif /* end of include guard: __CPU_PRIV_TYPES_H__ */

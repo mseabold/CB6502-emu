@@ -149,6 +149,11 @@ static uint8_t bus_read_peek_i(bus_t *bus, uint16_t addr, bool peek, bool sync)
 
             tracer->callback(addr, ret, false, sync ? SYNC : 0, tracer->userdata);
         }
+
+        /* Only log the last operation if it is committed. */
+        bus->lastop.write = false;
+        bus->lastop.addr = addr;
+        bus->lastop.flags = sync ? SYNC : 0;
     }
 
     return ret;
@@ -300,6 +305,28 @@ void bus_write(cbemu_t emu, uint16_t addr, uint8_t value)
         tracer = list_container(cur, bus_tracer_t, list);
 
         tracer->callback(addr, value, true, 0, tracer->userdata);
+    }
+
+    emu->bus.lastop.write = true;
+    emu->bus.lastop.addr = addr;
+    emu->bus.lastop.val = value;
+    emu->bus.lastop.flags = 0;
+}
+
+/**
+ * Replays the last bus operation. If it was a read, the result is discarded.
+ *
+ * @param[in] emu   Emulator context
+ */
+void bus_replay(cbemu_t emu)
+{
+    if(emu->bus.lastop.write)
+    {
+        bus_write(emu, emu->bus.lastop.addr, emu->bus.lastop.val);
+    }
+    else
+    {
+        (void)bus_read_peek_i(&emu->bus, emu->bus.lastop.addr, false, (emu->bus.lastop.flags & SYNC) ? true : false);
     }
 }
 

@@ -68,4 +68,11 @@ uint8_t bus_peek(cbemu_t emu, uint16_t addr);
  */
 void bus_write(cbemu_t emu, uint16_t addr, uint8_t value);
 
+/**
+ * Replays the last bus operation. If it was a read, the result is discarded.
+ *
+ * @param[in] emu   Emulator context
+ */
+void bus_replay(cbemu_t emu);
+
 #endif /* end of include guard: __BUS_PRIV_H__ */
