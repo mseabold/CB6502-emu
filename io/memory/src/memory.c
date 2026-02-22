@@ -4,14 +4,9 @@
 #include "memory.h"
 #include "log.h"
 
-typedef enum
-{
-    MEMFLAG_MASK_BASE = 0x100
-} memory_flags_i_t;
-
 struct memory_s
 {
-    memory_flags_i_t flags;
+    memory_flags_t flags;
     uint16_t size;
     uint16_t base;
     cbemu_t emulator;
@@ -35,14 +30,7 @@ static void mem_bus_write_cb(uint16_t addr, uint8_t value, bus_flags_t flags, vo
         return;
     }
 
-    if(handle->flags & MEMFLAG_MASK_BASE)
-    {
-        internal_addr = (addr & handle->base);
-    }
-    else
-    {
-        internal_addr = addr - handle->base;
-    }
+    internal_addr = addr - handle->base;
 
     if(internal_addr >= handle->size)
     {
@@ -63,14 +51,7 @@ static uint8_t mem_bus_read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
         return 0xFF;
     }
 
-    if(handle->flags & MEMFLAG_MASK_BASE)
-    {
-        internal_addr = (addr & handle->base);
-    }
-    else
-    {
-        internal_addr = addr - handle->base;
-    }
+    internal_addr = addr - handle->base;
 
     if(internal_addr >= handle->size)
     {
@@ -117,7 +98,6 @@ memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t 
         if(bus_params != NULL)
         {
             handle->bus_handle = emu_bus_register(bus_params->emulator, bus_params->decoder, &mem_bus_handlers, handle);
-            handle->flags |= (bus_params->is_base_mask) ? MEMFLAG_MASK_BASE : 0;
             handle->emulator = bus_params->emulator;
             handle->base = bus_params->base;
         }
@@ -125,7 +105,7 @@ memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t 
         if((bus_params == NULL) || (handle->bus_handle != NULL))
         {
             handle->size = size;
-            handle->flags = (memory_flags_i_t)flags;
+            handle->flags = flags;
         }
         else
         {
