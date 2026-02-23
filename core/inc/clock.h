@@ -42,6 +42,15 @@ typedef void (*clock_tick_cb_t)(clk_t clk, void *userdata);
 clk_t clock_add(cbemu_t emu, clk_freq_t freq);
 
 /**
+ * Gets the core clock for the emulator.
+ *
+ * @param[in] emu   The emulator core.
+ *
+ * @return The handle for the core clock.
+ */
+clk_t clock_get_core_clk(cbemu_t);
+
+/**
  * Removes a previously registerd clock
  *
  * @param[in] emu   The emulator core

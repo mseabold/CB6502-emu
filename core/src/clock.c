@@ -118,6 +118,23 @@ void clock_cleanup(clk_cxt_t *cxt)
 }
 
 /**
+ * Gets the core clock for the emulator.
+ *
+ * @param[in] emu   The emulator core.
+ *
+ * @return The handle for the core clock.
+ */
+clk_t clock_get_core_clk(cbemu_t emu)
+{
+    if(emu != NULL)
+    {
+        return emu->clk.mainClk;
+    }
+
+    return NULL;
+}
+
+/**
  * Tick the main bus clock. This will update and tick all other applicable clocks
  * based on relative frequency
  *
