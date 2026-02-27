@@ -10,6 +10,7 @@
 #define ACIA_RS_STATUS   0x01
 #define ACIA_RS_CMD      0x02
 #define ACIA_RS_CTRL     0x03
+#define ACIA_REG_MAX     ACIA_RS_CTRL
 
 #define ACIA_STATUS_IRQ   0x80
 #define ACIA_STATUS_DSRB  0x40
@@ -64,16 +65,77 @@ struct acia_s
     uint8_t stat_reg;
 
     bool irq_pend;
-    sys_cxt_t syscxt;
+    cbemu_t emu;
+    bus_cb_handle_t bus_handle;
+    uint16_t base;
+    clk_t bit_clock;
+    clock_cb_handle_t clock_cb;
 
     const acia_trans_interface_t *transport;
     void *trans_param;
     void *trans_handle;
 };
 
-acia_t acia_init(sys_cxt_t system_cxt, const acia_trans_interface_t *transport, void *transport_params)
+static void acia_bus_write_cb(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
 {
+    acia_t handle = (acia_t)userdata;
+    uint16_t reg;
+
+    if(handle == NULL)
+    {
+        return;
+    }
+
+    reg = addr - handle->base;
+
+    if(reg >= ACIA_REG_MAX)
+    {
+        return;
+    }
+
+    acia_write(handle, reg, val);
+}
+
+static uint8_t acia_bus_read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
+{
+    acia_t handle = (acia_t)userdata;
+    uint16_t reg;
+
+    if(handle == NULL)
+    {
+        return 0xFF;
+    }
+
+    reg = addr - handle->base;
+
+    if(reg >= ACIA_REG_MAX)
+    {
+        return 0xFF;
+    }
+
+    return acia_read(handle, reg);
+}
+
+static void acia_tick_cb(clk_t clock, void *userdata)
+{
+}
+
+static const bus_handlers_t acia_bus_handlers =
+{
+    acia_bus_write_cb,
+    acia_bus_read_cb,
+    acia_bus_read_cb
+};
+
+acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params, clk_t bit_clock, io_bus_params_t *bus_params)
+{
+    bool error = false;
     acia_t cxt;
+
+    if((transport == NULL) || ((bus_params != NULL) || !io_is_bus_params_valid(bus_params)))
+    {
+        return NULL;
+    }
 
     cxt = malloc(sizeof(struct acia_s));
 
@@ -84,14 +146,40 @@ acia_t acia_init(sys_cxt_t system_cxt, const acia_trans_interface_t *transport, 
 
     cxt->transport = transport;
     cxt->trans_param = transport_params;
-    cxt->syscxt = system_cxt;
 
     cxt->trans_handle = transport->init(transport_params);
 
     if(cxt->trans_handle == NULL)
     {
-        free(cxt);
-        return NULL;
+        error = true;
+    }
+
+    if(!error)
+    {
+        cxt->clock_cb = clock_register_tick(cxt->bit_clock, acia_tick_cb, cxt);
+
+        if(cxt->clock_cb == NULL)
+        {
+            error = true;
+        }
+    }
+
+    if((!error) && (bus_params))
+    {
+        cxt->base = bus_params->base;
+        cxt->emu = bus_params->emulator;
+        cxt->bus_handle = emu_bus_register(cxt->emu, bus_params->decoder, &acia_bus_handlers, cxt);
+
+        if(cxt->bus_handle == NULL)
+        {
+            error = true;
+        }
+    }
+
+    if(error)
+    {
+        acia_cleanup(cxt);
+        cxt = NULL;
     }
 
     return cxt;
@@ -163,6 +251,19 @@ void acia_cleanup(acia_t handle)
     if(handle == NULL)
         return;
 
-    handle->transport->cleanup(handle->trans_handle);
+    if(handle->trans_handle != NULL)
+    {
+        handle->transport->cleanup(handle->trans_handle);
+    }
+
+    if(handle->bus_handle != NULL)
+    {
+        emu_bus_unregister(handle->emu, handle->bus_handle);
+    }
+
+    if(handle->clock_cb != NULL)
+    {
+        clock_unregister_tick(handle->clock_cb);
+    }
     free(handle);
 }

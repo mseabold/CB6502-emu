@@ -12,5 +12,6 @@ target_include_directories(acia PUBLIC inc)
 target_link_libraries(acia
     PUBLIC
         cbemu
+        ioutil
 )
 

@@ -21,4 +21,16 @@ typedef struct
     uint16_t base;
 } io_bus_params_t;
 
+/**
+ * Determines if a io_bus_params_t structure is valid.
+ *
+ * @param[in] params    The bus params to check for validity
+ *
+ * @return true if params is valid.
+ */
+inline bool io_is_bus_params_valid(const io_bus_params_t *params)
+{
+    return ((params != NULL) && (params->decoder != NULL) && (params->emulator != NULL));
+}
+
 #endif /* __IOUTIL_H__ */

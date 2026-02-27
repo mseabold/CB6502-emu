@@ -14,7 +14,6 @@
 #include "acia.h"
 #include "acia_unix_sock.h"
 #include "log.h"
-#include "sys.h"
 
 #define RING_BUFFER_SIZE 128
 
