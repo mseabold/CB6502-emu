@@ -114,5 +114,22 @@ clock_cb_handle_t clock_register_tick(clk_t clk, clock_tick_cb_t callback, void 
  */
 void clock_unregister_tick(clock_cb_handle_t handle);
 
+/**
+ * Get the frequency in hertz of the given clock
+ *
+ * @param[in] clk       The clock handle
+ *
+ * @return The frequency of the clock in hertz
+ */
+clk_freq_t clock_get_freq(clk_t clk);
+
+/**
+ * Get the period in nanoseconds of the given clock
+ *
+ * @param[in] clk       The clock handle
+ *
+ * @return The period of the clock in ns
+ */
+clk_period_t clock_get_period(clk_t clk);
 
 #endif /* end of include guard: __CLOCK_H__ */

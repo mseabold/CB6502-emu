@@ -356,3 +356,37 @@ void clock_unregister_tick(clock_cb_handle_t handle)
 
     free(handle);
 }
+
+/**
+ * Get the frequency in hertz of the given clock
+ *
+ * @param[in] clk       The clock handle
+ *
+ * @return The frequency of the clock in hertz
+ */
+clk_freq_t clock_get_freq(clk_t clk)
+{
+    if(clk == NULL)
+    {
+        return 0;
+    }
+
+    return clk->freq;
+}
+
+/**
+ * Get the period in nanoseconds of the given clock
+ *
+ * @param[in] clk       The clock handle
+ *
+ * @return The period of the clock in ns
+ */
+clk_period_t clock_get_period(clk_t clk)
+{
+    if(clk == NULL)
+    {
+        return 0;
+    }
+
+    return clk->period;
+}
