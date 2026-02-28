@@ -73,7 +73,7 @@ typedef struct cpu_s
     cpu_flags_t flags;
 } cpu_t;
 
-#define CPU_SET_FLAG(_cpu, _flag)       ((_cpu)->flags | (_flag))
+#define CPU_SET_FLAG(_cpu, _flag)       ((_cpu)->flags |= (_flag))
 #define CPU_CHECK_FLAG(_cpu, _flag)     (((_cpu)->flags & (_flag)) != 0)
 #define CPU_CLEAR_FLAG(_cpu, _flag)     ((_cpu)->flags &= ~(_flag))
 

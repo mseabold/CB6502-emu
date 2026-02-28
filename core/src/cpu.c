@@ -133,7 +133,11 @@ static const uint8_t branch_shift_map[] = {
 
 static inline void advance_state(cpu_t *cpu, op_state_t new_state, bool memcycle)
 {
-    CPU_SET_FLAG(cpu, CPU_CYCLE_CONSUMED);
+    if(memcycle)
+    {
+        CPU_SET_FLAG(cpu, CPU_CYCLE_CONSUMED);
+    }
+
     cpu->op_state = new_state;
 }
 
