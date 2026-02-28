@@ -7,12 +7,12 @@
 /**
  * Initializes the clock module
  *
- * @param[in] cxt   Clock module context to initialize
- * @param[in] mainClkFreq   Frequency of the main bus clock (PHI2)
+ * @param[in] cxt       Clock module context to initialize
+ * @param[in] config    The clock's configuration parameters
  *
  * @return true on successful initialization
  */
-bool clock_init(clk_cxt_t *cxt, clk_freq_t mainClkFreq);
+bool clock_init(clk_cxt_t *cxt, const clock_config_t *config);
 
 /**
  * Cleans up a given clock module context

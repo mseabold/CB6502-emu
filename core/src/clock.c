@@ -7,24 +7,46 @@
 #include "clock.h"
 #include "log.h"
 
+#define HZ_NS_CONVERT 1000000000UL
+
 /**
  * Allocates and initializes a clock structure
  *
- * @param[in] freq  Frequency of the clock
+ * @param[in] config    The clock's configuration parameters
  *
  * @return Handle for the allocated clock
  */
-static clk_t clock_alloc_clk(clk_freq_t freq)
+static clk_t clock_alloc_clk(const clock_config_t *config)
 {
     clk_t clk;
+
+    /* Checking entry in the union for 0 checks both. */
+    if((config == NULL) || (config->timing.freq == 0) || ((config->timing_type == CLOCK_FREQ) && (config->timing.freq > CLOCK_MAX_FREQUENCY)))
+    {
+        return NULL;
+    }
 
     clk = malloc(sizeof(struct clk_s));
     if(clk != NULL)
     {
         memset(clk, 0, sizeof(struct clk_s));
 
-        clk->freq = freq;
-        clk->ticks = freq;
+        if(config->timing_type == CLOCK_PERIOD)
+        {
+            clk->period = config->timing.period;
+
+            /* Calculate frequency rounded to the nearest hz. */
+            clk->freq = (HZ_NS_CONVERT + (clk->period >> 1)) / clk->period;
+        }
+        else
+        {
+            clk->freq = config->timing.freq;
+
+            /* Calculate period rounded to the nearest ns. */
+            clk->period = (HZ_NS_CONVERT + (clk->freq >> 1)) / clk->freq;
+        }
+
+        clk->ticks = clk->period;
         list_init(&clk->callbacks);
     }
 
@@ -83,17 +105,17 @@ static void clock_make_callbacks(clk_t clk)
  * Initializes the clock module
  *
  * @param[in] cxt   Clock module context to initialize
- * @param[in] mainClkFreq   Frequency of the main bus clock (PHI2)
+ * @param[in] config    The clock's configuration parameters
  *
  * @return true on successful initialization
  */
-bool clock_init(clk_cxt_t *cxt, clk_freq_t mainClkFreq)
+bool clock_init(clk_cxt_t *cxt, const clock_config_t *config)
 {
     bool result;
 
     memset(cxt, 0, sizeof(clk_cxt_t));
     list_init(&cxt->clks);
-    cxt->mainClk = clock_alloc_clk(mainClkFreq);
+    cxt->mainClk = clock_alloc_clk(config);
 
     result = (cxt->mainClk != NULL);
 
@@ -143,8 +165,8 @@ clk_t clock_get_core_clk(cbemu_t emu)
 void clock_main_tick(clk_cxt_t *cxt)
 {
     clk_t headClk;
-    clk_freq_t remainingTicks = cxt->mainClk->freq;
-    clk_freq_t ticksToConsume;
+    clk_period_t remainingTicks = cxt->mainClk->period;
+    clk_period_t ticksToConsume;
     bool rerunLoop = false;
     listnode_t *iter;
 
@@ -171,7 +193,7 @@ void clock_main_tick(clk_cxt_t *cxt)
                  * later as we consume the time for each clock. */
                 ticksToConsume = headClk->ticks;
                 list_remove(&headClk->node);
-                headClk->ticks = headClk->freq;
+                headClk->ticks = headClk->period;
                 clock_make_callbacks(headClk);
             }
             else
@@ -228,19 +250,19 @@ void clock_main_tick(clk_cxt_t *cxt)
 /**
  * Adds a clock to the core emulator.
  *
- * @param[in] emu   The emulator core
- * @parampin[ freq  The frequency of the clock to add
+ * @param[in] emu       The emulator core
+ * @param[in] config    The clock's configuration parameters
  *
  * @return A handle for the registered clock, or NULL on error.
  */
-clk_t clock_add(cbemu_t emu, clk_freq_t freq)
+clk_t clock_add(cbemu_t emu, const clock_config_t *config)
 {
     clk_t clk;
     clk_t listptr;
     listnode_t *node;
     bool added = false;
 
-    clk = clock_alloc_clk(freq);
+    clk = clock_alloc_clk(config);
 
     if(clk != NULL)
     {

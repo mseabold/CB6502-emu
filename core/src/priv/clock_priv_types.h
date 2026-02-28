@@ -20,7 +20,8 @@ typedef struct
 struct clk_s
 {
     clk_freq_t freq;            /**< Frequency of the clock */
-    clk_freq_t ticks;           /**< Remaining ticks (hertz) of the clock before it ticks */
+    clk_period_t period;        /**< Period of the clock (in ns) */
+    clk_period_t ticks;         /**< Remaining ns of the clock before it ticks */
     listnode_t callbacks;       /**< List head for registered callbacks. */
     listnode_t node;            /**< List entry node */
 };

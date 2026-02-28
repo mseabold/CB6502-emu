@@ -26,7 +26,7 @@ cbemu_t emu_init(const emu_config_t *config)
         initst = bus_init(emu);
 
         if(initst)
-            initst = clock_init(&emu->clk, config->main_freq);
+            initst = clock_init(&emu->clk, &config->mainclk_config);
 
         if(initst)
             initst = cpu_init(emu);

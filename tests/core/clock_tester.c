@@ -23,10 +23,48 @@ static void counter_tick_cb(clk_t clk, void *userdata)
 void test_clock_add(void)
 {
     clk_t clk;
+    clock_config_t config;
+    config.timing_type = CLOCK_FREQ;
+    config.timing.freq = 5000000;
 
-    clk = clock_add(&emu, 500000);
+    clk = clock_add(&emu, &config);
 
     TEST_ASSERT_NOT_NULL(clk);
+    TEST_ASSERT_EQUAL_UINT32(200, clk->period);
+}
+
+void test_clock_add_freq_round(void)
+{
+    clk_t clk;
+    clock_config_t config;
+    config.timing_type = CLOCK_FREQ;
+
+    /* Pick a frequency that should cause a round-up when converting to ns. */
+    config.timing.freq = 1843200;
+
+    clk = clock_add(&emu, &config);
+
+    TEST_ASSERT_NOT_NULL(clk);
+
+    /* Verify resultant period is rounded up. */
+    TEST_ASSERT_EQUAL_UINT32(543, clk->period);
+}
+
+void test_add_clock_period(void)
+{
+    clk_t clk;
+    clock_config_t config;
+    config.timing_type = CLOCK_PERIOD;
+
+    /* Pick a period that should cause a round-up when converting to hz. */
+    config.timing.freq = 204;
+
+    clk = clock_add(&emu, &config);
+
+    TEST_ASSERT_NOT_NULL(clk);
+
+    /* Verify resultant period is rounded up. */
+    TEST_ASSERT_EQUAL_UINT32(4901961, clk->freq);
 }
 
 void test_register_tick_main(void)
@@ -55,8 +93,12 @@ void test_two_clocks_half_freq(void)
     clk_t clk;
     uint32_t mainCnt = 0;
     uint32_t secCnt = 0;
+    clock_config_t config;
 
-    clk = clock_add(&emu, MAIN_CLK_FREQ/2);
+    config.timing_type = CLOCK_FREQ;
+    config.timing.freq = MAIN_CLK_FREQ/2;
+
+    clk = clock_add(&emu, &config);
 
     TEST_ASSERT_NOT_NULL(clk);
 
@@ -66,7 +108,12 @@ void test_two_clocks_half_freq(void)
     clock_main_tick(&emu.clk);
 
     TEST_ASSERT_EQUAL_UINT32(1, mainCnt);
-    TEST_ASSERT_EQUAL_UINT32(2, secCnt);
+    TEST_ASSERT_EQUAL_UINT32(0, secCnt);
+
+    clock_main_tick(&emu.clk);
+
+    TEST_ASSERT_EQUAL_UINT32(2, mainCnt);
+    TEST_ASSERT_EQUAL_UINT32(1, secCnt);
 }
 
 void test_three_clocks_half_double(void)
@@ -75,9 +122,14 @@ void test_three_clocks_half_double(void)
     uint32_t mainCnt = 0;
     uint32_t secCnt = 0;
     uint32_t thrdCnt = 0;
+    clock_config_t config;
 
-    clk = clock_add(&emu, MAIN_CLK_FREQ/2);
-    clk2 = clock_add(&emu, MAIN_CLK_FREQ*2);
+    config.timing_type = CLOCK_FREQ;
+    config.timing.freq = MAIN_CLK_FREQ/2;
+    clk = clock_add(&emu, &config);
+
+    config.timing.freq = MAIN_CLK_FREQ*2;
+    clk2 = clock_add(&emu, &config);
 
     TEST_ASSERT_NOT_NULL(clk);
     TEST_ASSERT_NOT_NULL(clk2);
@@ -89,19 +141,22 @@ void test_three_clocks_half_double(void)
     clock_main_tick(&emu.clk);
 
     TEST_ASSERT_EQUAL_UINT32(1, mainCnt);
-    TEST_ASSERT_EQUAL_UINT32(2, secCnt);
-    TEST_ASSERT_EQUAL_UINT32(0, thrdCnt);
+    TEST_ASSERT_EQUAL_UINT32(0, secCnt);
+    TEST_ASSERT_EQUAL_UINT32(2, thrdCnt);
 
     clock_main_tick(&emu.clk);
 
     TEST_ASSERT_EQUAL_UINT32(2, mainCnt);
-    TEST_ASSERT_EQUAL_UINT32(4, secCnt);
-    TEST_ASSERT_EQUAL_UINT32(1, thrdCnt);
+    TEST_ASSERT_EQUAL_UINT32(1, secCnt);
+    TEST_ASSERT_EQUAL_UINT32(4, thrdCnt);
 }
 
 void setUp(void)
 {
-    clock_init(&emu.clk, MAIN_CLK_FREQ);
+    clock_config_t config;
+    config.timing_type = CLOCK_FREQ;
+    config.timing.freq = MAIN_CLK_FREQ;
+    clock_init(&emu.clk, &config);
 }
 
 void tearDown(void)
@@ -115,6 +170,8 @@ int main(int argc, char *argv[])
     log_set_level(lDEBUG);
     UNITY_BEGIN();
     RUN_TEST(test_clock_add);
+    RUN_TEST(test_clock_add_freq_round);
+    RUN_TEST(test_add_clock_period);
     RUN_TEST(test_register_tick_main);
     RUN_TEST(test_main_clock_tick);
     RUN_TEST(test_two_clocks_half_freq);

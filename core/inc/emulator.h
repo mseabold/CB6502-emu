@@ -7,7 +7,7 @@
 
 typedef struct
 {
-    clk_freq_t main_freq;
+    clock_config_t mainclk_config;
 } emu_config_t;
 
 cbemu_t emu_init(const emu_config_t *config);

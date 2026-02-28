@@ -20,7 +20,7 @@ typedef struct
 } bus_log_t;
 
 static cbemu_t emu;
-static const emu_config_t config = { 1000000 };
+static const emu_config_t config = { CLOCK_FREQ, 1000000 };
 
 static uint8_t rst_vec_read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
 {

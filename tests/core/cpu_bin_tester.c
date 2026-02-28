@@ -124,7 +124,8 @@ void setUp(void)
     memory[0] = 0xff;
     memory[1] = 0xff;
 
-    config.main_freq = 1000000;
+    config.mainclk_config.timing_type = CLOCK_FREQ;
+    config.mainclk_config.timing.freq = 1000000;
     emu = emu_init(&config);
 
     in_opcode = false;
