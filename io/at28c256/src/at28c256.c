@@ -56,7 +56,8 @@ typedef struct
 
 struct at28c256_s
 {
-    sys_cxt_t sys;
+    clk_t main_clk;
+    clock_cb_handle_t tick_cb;
     uint8_t image[IMAGE_SIZE];
     uint32_t flags;
     uint8_t page_buffer[PAGE_SIZE];
@@ -129,7 +130,22 @@ static void handle_page_write(at28c256_t handle, uint16_t addr, uint8_t val)
     }
 }
 
-at28c256_t at28c256_init(sys_cxt_t system_context, uint32_t flags)
+static void acia_tick_cb(clk_t clk, void *userdata)
+{
+    at28c256_t handle = (at28c256_t)userdata;
+    clk_period_t period;
+
+    if(handle == NULL)
+    {
+        return;
+    }
+
+    period = clock_get_period(clk);
+
+    at28c256_tick(handle, period);
+}
+
+at28c256_t at28c256_init(clk_t main_clk, uint32_t flags)
 {
     at28c256_t handle;
 
@@ -139,11 +155,19 @@ at28c256_t at28c256_init(sys_cxt_t system_context, uint32_t flags)
         return NULL;
 
     memset(handle, 0, sizeof(struct at28c256_s));
-    handle->sys = system_context;
+    handle->main_clk = main_clk;
 
     if(flags & AT28C256_INIT_FLAG_ENABLE_SDP)
     {
         handle->flags |= FLAG_SDP_ENABLED;
+    }
+
+    handle->tick_cb = clock_register_tick(handle->main_clk, acia_tick_cb, handle);
+
+    if(handle->tick_cb == NULL)
+    {
+        free(handle);
+        handle = NULL;
     }
 
     return handle;
@@ -322,15 +346,12 @@ uint8_t at28c256_read(at28c256_t handle, uint16_t addr)
     return handle->image[addr & IMAGE_MASK];
 }
 
-void at28c256_tick(at28c256_t handle, uint32_t ticks)
+void at28c256_tick(at28c256_t handle, uint32_t nanos)
 {
-    uint64_t nanos;
     uint8_t i;
 
     if(handle == NULL)
         return;
-
-    nanos = sys_convert_ticks_to_ns(handle->sys, ticks);
 
     while(nanos > 0)
     {
