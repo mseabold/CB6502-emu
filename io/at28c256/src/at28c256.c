@@ -68,6 +68,9 @@ struct at28c256_s
     write_state_t write_state;
     uint64_t state_elapsed;
     sdp_seq_t sdp_state;
+    cbemu_t emulator;
+    bus_cb_handle_t bus_handle;
+    uint16_t base;
 };
 
 /* Table of all expected writes for each SDP state. */
@@ -130,7 +133,7 @@ static void handle_page_write(at28c256_t handle, uint16_t addr, uint8_t val)
     }
 }
 
-static void acia_tick_cb(clk_t clk, void *userdata)
+static void at28c256_tick_cb(clk_t clk, void *userdata)
 {
     at28c256_t handle = (at28c256_t)userdata;
     clk_period_t period;
@@ -145,9 +148,63 @@ static void acia_tick_cb(clk_t clk, void *userdata)
     at28c256_tick(handle, period);
 }
 
-at28c256_t at28c256_init(clk_t main_clk, uint32_t flags)
+static void at28c256_write_cb(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
+{
+    at28c256_t handle = (at28c256_t)userdata;
+    uint16_t local;
+
+    if(handle == NULL)
+    {
+        return;
+    }
+
+    local = addr - handle->base;
+
+    if(local >= IMAGE_SIZE)
+    {
+        return;
+    }
+
+
+    at28c256_write(handle, local, val);
+}
+
+static uint8_t at28c256_read_cb(uint16_t addr, bus_flags_t flags, void *userdata)
+{
+    at28c256_t handle = (at28c256_t)userdata;
+    uint16_t local;
+
+    if(handle == NULL)
+    {
+        return 0xFF;
+    }
+
+    local = addr - handle->base;
+
+    if(local >= IMAGE_SIZE)
+    {
+        return 0xFF;
+    }
+
+
+    return at28c256_read(handle, local);
+}
+
+static const bus_handlers_t at28c256_bus_handlers =
+{
+    at28c256_write_cb,
+    at28c256_read_cb,
+    at28c256_read_cb,
+};
+
+at28c256_t at28c256_init(clk_t main_clk, uint32_t flags, const io_bus_params_t *bus_params)
 {
     at28c256_t handle;
+
+    if((bus_params != NULL) && (!io_is_bus_params_valid(bus_params)))
+    {
+        return NULL;
+    }
 
     handle = malloc(sizeof(struct at28c256_s));
 
@@ -162,9 +219,28 @@ at28c256_t at28c256_init(clk_t main_clk, uint32_t flags)
         handle->flags |= FLAG_SDP_ENABLED;
     }
 
-    handle->tick_cb = clock_register_tick(handle->main_clk, acia_tick_cb, handle);
+    handle->tick_cb = clock_register_tick(handle->main_clk, at28c256_tick_cb, handle);
 
-    if(handle->tick_cb == NULL)
+    if(handle->tick_cb != NULL)
+    {
+        if(bus_params != NULL)
+        {
+            handle->bus_handle = emu_bus_register(bus_params->emulator, bus_params->decoder, &at28c256_bus_handlers, handle);
+
+            if(handle->bus_handle != NULL)
+            {
+                handle->emulator = bus_params->emulator;
+                handle->base = bus_params->base;
+            }
+            else
+            {
+                clock_unregister_tick(handle->tick_cb);
+                free(handle);
+                handle = NULL;
+            }
+        }
+    }
+    else
     {
         free(handle);
         handle = NULL;
