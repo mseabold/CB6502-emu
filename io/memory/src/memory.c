@@ -84,7 +84,7 @@ memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t 
 {
     memory_t handle;
 
-    if((bus_params != NULL) && ((bus_params->emulator == NULL) || (bus_params->decoder != NULL)))
+    if((bus_params != NULL) && ((bus_params->emulator == NULL) || (bus_params->decoder == NULL)))
     {
         return NULL;
     }
@@ -166,6 +166,12 @@ uint8_t memory_read(memory_t memory, uint16_t addr)
  */
 void memory_write(memory_t memory, uint16_t addr, uint8_t value)
 {
+    if(memory->flags & MEMFLAG_ROM)
+    {
+        log_print(lWARNING, "Attempt to write to ROM memory at addres 0x%04x", addr);
+        return;
+    }
+
     if((memory != NULL) && (addr < memory->size))
     {
         memory->buffer[addr] = value;
