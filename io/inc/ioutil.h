@@ -28,7 +28,7 @@ typedef struct
  *
  * @return true if params is valid.
  */
-inline bool io_is_bus_params_valid(const io_bus_params_t *params)
+static inline bool io_is_bus_params_valid(const io_bus_params_t *params)
 {
     return ((params != NULL) && (params->decoder != NULL) && (params->emulator != NULL));
 }
