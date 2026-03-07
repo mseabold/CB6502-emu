@@ -132,7 +132,7 @@ acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params
     bool error = false;
     acia_t cxt;
 
-    if((transport == NULL) || ((bus_params != NULL) || !io_is_bus_params_valid(bus_params)))
+    if((transport == NULL) || ((bus_params != NULL) && !io_is_bus_params_valid(bus_params)))
     {
         return NULL;
     }
@@ -156,6 +156,7 @@ acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params
 
     if(!error)
     {
+        cxt->bit_clock = bit_clock;
         cxt->clock_cb = clock_register_tick(cxt->bit_clock, acia_tick_cb, cxt);
 
         if(cxt->clock_cb == NULL)
