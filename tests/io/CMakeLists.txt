@@ -24,3 +24,17 @@ target_include_directories(memory_tester
 )
 
 add_test(NAME memory_tester COMMAND memory_tester)
+
+add_executable(via_tester via_tester.c)
+
+target_link_libraries(via_tester
+    unity::framework
+    cbemu
+    via)
+
+target_include_directories(via_tester
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/core/src/priv
+)
+
+add_test(NAME via_tester COMMAND via_tester)
