@@ -38,3 +38,17 @@ target_include_directories(via_tester
 )
 
 add_test(NAME via_tester COMMAND via_tester)
+
+add_executable(acia_tester acia_tester.c)
+
+target_link_libraries(acia_tester
+    unity::framework
+    cbemu
+    acia)
+
+target_include_directories(acia_tester
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/core/src/priv
+)
+
+add_test(NAME acia_tester COMMAND acia_tester)
