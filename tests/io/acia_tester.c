@@ -14,7 +14,7 @@ void test_init_direct(void)
 
     TEST_ASSERT_NOT_NULL(emu);
 
-    acia = acia_init(acia_console_get_iface(), NULL, clock_get_core_clk(emu), NULL);
+    acia = acia_init(acia_console_get_iface(), NULL, clock_get_core_clk(emu));
 
     TEST_ASSERT_NOT_NULL(acia);
 }
@@ -22,7 +22,6 @@ void test_init_direct(void)
 void test_init_bus(void)
 {
     bus_decode_params_t decoder;
-    io_bus_params_t iop;
 
     emu = emu_init(&config);
 
@@ -31,13 +30,12 @@ void test_init_bus(void)
     decoder.type = BUSDECODE_RANGE;
     decoder.value.range.addr_start = 0x1000;
     decoder.value.range.addr_end = 0x100F;
-    iop.emulator = emu;
-    iop.decoder = &decoder;
-    iop.base = 0x1000;
 
-    acia = acia_init(acia_console_get_iface(), NULL, clock_get_core_clk(emu), &iop);
+    acia = acia_init(acia_console_get_iface(), NULL, clock_get_core_clk(emu));
 
     TEST_ASSERT_NOT_NULL(acia);
+
+    TEST_ASSERT_TRUE(acia_register(acia, emu, &decoder, 0x1000));
 }
 
 void setUp(void)

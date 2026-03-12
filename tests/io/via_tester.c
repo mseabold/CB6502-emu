@@ -8,7 +8,7 @@ static const emu_config_t config = { CLOCK_FREQ, 1000000 };
 
 void test_init_direct(void)
 {
-    via = via_init(NULL);
+    via = via_init();
 
     TEST_ASSERT_NOT_NULL(via);
 }
@@ -16,7 +16,6 @@ void test_init_direct(void)
 void test_init_bus(void)
 {
     bus_decode_params_t decoder;
-    io_bus_params_t iop;
 
     emu = emu_init(&config);
 
@@ -25,13 +24,12 @@ void test_init_bus(void)
     decoder.type = BUSDECODE_RANGE;
     decoder.value.range.addr_start = 0x1000;
     decoder.value.range.addr_end = 0x100F;
-    iop.emulator = emu;
-    iop.decoder = &decoder;
-    iop.base = 0x1000;
 
-    via = via_init(&iop);
+    via = via_init();
 
     TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000));
 }
 
 void setUp(void)

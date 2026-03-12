@@ -74,20 +74,12 @@ static const bus_handlers_t mem_bus_handlers =
  *
  * @param[in] size          The size of the memory to allocate.
  * @param[in] flags         Boolean flags for instance configuration. See memory_flags_t.
- * @param[in] bus_params    If non-NULL, will be used to register a bus handler with
- *                          with the supplied emulator instance. If decoding is to
- *                          be done externally from the memory instance, then this can be
- *                          NULL. In such case, the caller can performing any bus decoding
- *                          and call memory_read/memory_write directly.
+ *
+ * @return The handle if the new memory instance or NULL on error
  */
-memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t *bus_params)
+memory_t memory_init(uint16_t size, memory_flags_t flags)
 {
     memory_t handle;
-
-    if((bus_params != NULL) && ((bus_params->emulator == NULL) || (bus_params->decoder == NULL)))
-    {
-        return NULL;
-    }
 
     handle = malloc(sizeof(struct memory_s) + size);
 
@@ -95,26 +87,42 @@ memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t 
     {
         memset(handle, 0, sizeof(struct memory_s) + size);
 
-        if(bus_params != NULL)
-        {
-            handle->bus_handle = emu_bus_register(bus_params->emulator, bus_params->decoder, &mem_bus_handlers, handle);
-            handle->emulator = bus_params->emulator;
-            handle->base = bus_params->base;
-        }
-
-        if((bus_params == NULL) || (handle->bus_handle != NULL))
-        {
-            handle->size = size;
-            handle->flags = flags;
-        }
-        else
-        {
-            free(handle);
-            handle = NULL;
-        }
+        handle->size = size;
+        handle->flags = flags;
     }
 
     return handle;
+}
+
+/**
+ * Registers the memory instance with the an emulator's bus.
+ *
+ * @param[in] memory    The memory instance to register.
+ * @param[in] emu       The emulator to register the memory with.
+ * @param[in] decoder   The decoder parameters to register with the bus.
+ * @param[in] base_addr The base address if memory instnace within the memory space. This is used
+ *                      to derive the local memory offset when an address is given from the bus.
+ *                      This is purely a subtraction (bus_addr-base_addr). If a more complicateded
+ *                      mapping protocol is needed, then external bus decoding should be used.
+ *
+ * @return true if the registration was successful.
+ */
+bool memory_register(memory_t memory, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base_addr)
+{
+    if((memory == NULL) || (emu == NULL) || (decoder == NULL))
+    {
+        return false;
+    }
+
+    memory->bus_handle = emu_bus_register(emu, decoder, &mem_bus_handlers, memory);
+
+    if(memory->bus_handle != NULL)
+    {
+        memory->base = base_addr;
+        memory->emulator = emu;
+    }
+
+    return (memory->bus_handle != NULL);
 }
 
 /**

@@ -197,11 +197,11 @@ static const bus_handlers_t at28c256_bus_handlers =
     at28c256_read_cb,
 };
 
-at28c256_t at28c256_init(clk_t main_clk, uint32_t flags, const io_bus_params_t *bus_params)
+at28c256_t at28c256_init(clk_t main_clk, uint32_t flags)
 {
     at28c256_t handle;
 
-    if((bus_params != NULL) && (!io_is_bus_params_valid(bus_params)))
+    if(main_clk == NULL)
     {
         return NULL;
     }
@@ -221,26 +221,7 @@ at28c256_t at28c256_init(clk_t main_clk, uint32_t flags, const io_bus_params_t *
 
     handle->tick_cb = clock_register_tick(handle->main_clk, at28c256_tick_cb, handle);
 
-    if(handle->tick_cb != NULL)
-    {
-        if(bus_params != NULL)
-        {
-            handle->bus_handle = emu_bus_register(bus_params->emulator, bus_params->decoder, &at28c256_bus_handlers, handle);
-
-            if(handle->bus_handle != NULL)
-            {
-                handle->emulator = bus_params->emulator;
-                handle->base = bus_params->base;
-            }
-            else
-            {
-                clock_unregister_tick(handle->tick_cb);
-                free(handle);
-                handle = NULL;
-            }
-        }
-    }
-    else
+    if(handle->tick_cb == NULL)
     {
         free(handle);
         handle = NULL;
@@ -253,6 +234,24 @@ void at28c256_destroy(at28c256_t handle)
 {
     if(handle != NULL)
         free(handle);
+}
+
+bool at28c256_register(at28c256_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base_addr)
+{
+    if((handle == NULL) || (emu == NULL) || (decoder == NULL))
+    {
+        return false;
+    }
+
+    handle->bus_handle = emu_bus_register(emu, decoder, &at28c256_bus_handlers, handle);
+
+    if(handle->bus_handle != NULL)
+    {
+        handle->emulator = emu;
+        handle->base = base_addr;
+    }
+
+    return (handle->bus_handle != NULL);
 }
 
 bool at28c256_load_image(at28c256_t handle, uint16_t image_size, uint8_t *image, uint16_t offset)

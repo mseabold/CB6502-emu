@@ -2,7 +2,6 @@
 #define __VIA_H__
 
 #include "emulator.h"
-#include "ioutil.h"
 
 typedef enum {
     VIA_PORTA,
@@ -45,8 +44,9 @@ typedef struct via_protocol_s
     prot_get_t get;
 } via_protocol_t;
 
-via_t via_init(io_bus_params_t *bus_params);
+via_t via_init(void);
 void via_cleanup(via_t handle);
+bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base);
 void via_write(via_t handle, uint8_t reg, uint8_t val);
 uint8_t via_read(via_t handle, uint8_t reg);
 bool via_register_protocol(via_t handle, const via_protocol_t *protocol, void *userdata);

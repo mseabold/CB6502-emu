@@ -2,7 +2,6 @@
 #include "emulator.h"
 #include "memory.h"
 
-#include "emu_priv_types.h"
 #include "bus_priv.h"
 
 static cbemu_t emu;
@@ -11,14 +10,14 @@ static const emu_config_t config = { CLOCK_FREQ, 1000000 };
 
 void test_basic_init(void)
 {
-    memory = memory_init(0x1000, 0, NULL);
+    memory = memory_init(0x1000, 0);
 
     TEST_ASSERT_NOT_NULL(memory);
 }
 
 void test_ram_direct_rw(void)
 {
-    memory = memory_init(0x1000, 0, NULL);
+    memory = memory_init(0x1000, 0);
 
     TEST_ASSERT_NOT_NULL(memory);
 
@@ -41,7 +40,7 @@ void test_ram_direct_rw(void)
 void test_rom_direct_rw(void)
 {
     uint8_t curVal;
-    memory = memory_init(0x100, MEMFLAG_ROM, NULL);
+    memory = memory_init(0x100, MEMFLAG_ROM);
 
     TEST_ASSERT_NOT_NULL(memory);
 
@@ -57,7 +56,6 @@ void test_rom_direct_rw(void)
 void test_ram_bus_rw(void)
 {
     bus_decode_params_t decoder;
-    io_bus_params_t iop;
 
     emu = emu_init(&config);
     TEST_ASSERT_NOT_NULL(emu);
@@ -65,13 +63,12 @@ void test_ram_bus_rw(void)
     decoder.type = BUSDECODE_RANGE;
     decoder.value.range.addr_start = 0x1000;
     decoder.value.range.addr_end = 0x1FFF;
-    iop.emulator = emu;
-    iop.decoder = &decoder;
-    iop.base = 0x1000;
 
-    memory = memory_init(0x1000, 0, &iop);
+    memory = memory_init(0x1000, 0);
 
     TEST_ASSERT_NOT_NULL(memory);
+
+    TEST_ASSERT_TRUE(memory_register(memory, emu, &decoder, 0x1000));
 
     /* Test write to beginning */
     bus_write(emu, 0x1000, 0xAA);
@@ -99,7 +96,7 @@ void test_rom_load_full(void)
         loadBuf[index] = (uint8_t)index;
     }
 
-    memory = memory_init(sizeof(loadBuf), MEMFLAG_ROM, NULL);
+    memory = memory_init(sizeof(loadBuf), MEMFLAG_ROM);
 
     TEST_ASSERT_NOT_NULL(memory);
 
@@ -121,7 +118,7 @@ void test_rom_load_fill(void)
         loadBuf[index] = (uint8_t)index;
     }
 
-    memory = memory_init(sizeof(loadBuf), MEMFLAG_ROM, NULL);
+    memory = memory_init(sizeof(loadBuf), MEMFLAG_ROM);
 
     TEST_ASSERT_NOT_NULL(memory);
 

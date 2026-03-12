@@ -2,7 +2,6 @@
 #define __ACIA_H__
 
 #include "emulator.h"
-#include "ioutil.h"
 
 typedef void *(*acia_trans_init_t)(void *params);
 typedef bool (*acia_trans_available_t)(void *handle);
@@ -21,7 +20,8 @@ typedef struct
 
 typedef struct acia_s *acia_t;
 
-acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params, clk_t bit_clock, io_bus_params_t *bus_params);
+acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params, clk_t bit_clock);
+bool acia_register(acia_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base_addr);
 void acia_write(acia_t handle, uint8_t reg, uint8_t val);
 uint8_t acia_read(acia_t handle, uint8_t reg);
 void acia_cleanup(acia_t handle);

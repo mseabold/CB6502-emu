@@ -2,7 +2,6 @@
 #define __MEMORY_H__
 
 #include "emulator.h"
-#include "ioutil.h"
 
 typedef struct memory_s *memory_t;
 
@@ -19,13 +18,25 @@ typedef enum
  *
  * @param[in] size          The size of the memory to allocate.
  * @param[in] flags         Boolean flags for instance configuration. See memory_flags_t.
- * @param[in] bus_params    If non-NULL, will be used to register a bus handler with
- *                          with the supplied emulator instance. If decoding is to
- *                          be done externally from the memory instance, then this can be
- *                          NULL. In such case, the caller can performing any bus decoding
- *                          and call memory_read/memory_write directly.
+ *
+ * @return The handle if the new memory instance or NULL on error
  */
-memory_t memory_init(uint16_t size, memory_flags_t flags, const io_bus_params_t *bus_params);
+memory_t memory_init(uint16_t size, memory_flags_t flags);
+
+/**
+ * Registers the memory instance with the an emulator's bus.
+ *
+ * @param[in] memory    The memory instance to register.
+ * @param[in] emu       The emulator to register the memory with.
+ * @param[in] decoder   The decoder parameters to register with the bus.
+ * @param[in] base_addr The base address if memory instnace within the memory space. This is used
+ *                      to derive the local memory offset when an address is given from the bus.
+ *                      This is purely a subtraction (bus_addr-base_addr). If a more complicateded
+ *                      mapping protocol is needed, then external bus decoding should be used.
+ *
+ * @return true if the registration was successful.
+ */
+bool memory_register(memory_t memory, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base_addr);
 
 /**
  * Destorys a memory instance

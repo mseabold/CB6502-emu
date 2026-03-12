@@ -127,12 +127,12 @@ static const bus_handlers_t acia_bus_handlers =
     acia_bus_read_cb
 };
 
-acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params, clk_t bit_clock, io_bus_params_t *bus_params)
+acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params, clk_t bit_clock)
 {
     bool error = false;
     acia_t cxt;
 
-    if((transport == NULL) || ((bus_params != NULL) && !io_is_bus_params_valid(bus_params)))
+    if(transport == NULL)
     {
         return NULL;
     }
@@ -165,18 +165,6 @@ acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params
         }
     }
 
-    if((!error) && (bus_params))
-    {
-        cxt->base = bus_params->base;
-        cxt->emu = bus_params->emulator;
-        cxt->bus_handle = emu_bus_register(cxt->emu, bus_params->decoder, &acia_bus_handlers, cxt);
-
-        if(cxt->bus_handle == NULL)
-        {
-            error = true;
-        }
-    }
-
     if(error)
     {
         acia_cleanup(cxt);
@@ -184,6 +172,24 @@ acia_t acia_init(const acia_trans_interface_t *transport, void *transport_params
     }
 
     return cxt;
+}
+
+bool acia_register(acia_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base_addr)
+{
+    if((handle == NULL) || (emu == NULL) || (decoder == NULL))
+    {
+        return false;
+    }
+
+    handle->bus_handle = emu_bus_register(emu, decoder, &acia_bus_handlers, handle);
+
+    if(handle->bus_handle != NULL)
+    {
+        handle->base = base_addr;
+        handle->emu = emu;
+    }
+
+    return (handle->bus_handle != NULL);
 }
 
 void acia_write(acia_t handle, uint8_t reg, uint8_t val)

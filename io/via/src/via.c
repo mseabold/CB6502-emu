@@ -90,14 +90,9 @@ static const bus_handlers_t via_bus_handlers =
     via_bus_read_cb /* TODO Implement a peek callback if for any read operations they may have actions on read. */
 };
 
-via_t via_init(io_bus_params_t *bus_params)
+via_t via_init(void)
 {
     via_t cxt;
-
-    if((bus_params != NULL) && ((bus_params->emulator == NULL) || (bus_params->decoder == NULL)))
-    {
-        return NULL;
-    }
 
     cxt = malloc(sizeof(struct via_s));
 
@@ -106,10 +101,6 @@ via_t via_init(io_bus_params_t *bus_params)
 
     memset(cxt, 0, sizeof(struct via_s));
 
-    if(bus_params != NULL)
-    {
-        cxt->bus_handle = emu_bus_register(bus_params->emulator, bus_params->decoder, &via_bus_handlers, cxt);
-    }
     return cxt;
 }
 
@@ -117,6 +108,24 @@ void via_cleanup(via_t via)
 {
     if(via != NULL)
         free(via);
+}
+
+bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base)
+{
+    if((handle == NULL) || (emu == NULL) || (decoder == NULL))
+    {
+        return false;
+    }
+
+    handle->bus_handle = emu_bus_register(emu, decoder, &via_bus_handlers, handle);
+
+    if(handle->bus_handle != NULL)
+    {
+        handle->emu = emu;
+        handle->base = base;
+    }
+
+    return (handle->bus_handle != NULL);
 }
 
 void via_write(via_t handle, uint8_t reg, uint8_t val)
