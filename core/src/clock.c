@@ -104,38 +104,43 @@ static void clock_make_callbacks(clk_t clk)
 /**
  * Initializes the clock module
  *
- * @param[in] cxt   Clock module context to initialize
+ * @param[in] emu       The main emulator context to initialize.
  * @param[in] config    The clock's configuration parameters
+ * @param[in] main_clk_hlr  Dedicated internal handler for the main clock. This will be called prior to making
+ *                          any registered callbacks on the main clock. This allows the emulator core to perform
+ *                          cpu/other internal module ticking prior to the "rest of the world" receives the tick.
  *
  * @return true on successful initialization
  */
-bool clock_init(clk_cxt_t *cxt, const clock_config_t *config)
+bool clock_init(cbemu_t emu, const clock_config_t *config, clock_tick_cb_t main_clk_hlr)
 {
-    bool result;
+    memset(&emu->clk, 0, sizeof(clk_cxt_t));
+    list_init(&emu->clk.clks);
 
-    memset(cxt, 0, sizeof(clk_cxt_t));
-    list_init(&cxt->clks);
-    cxt->mainClk = clock_alloc_clk(config);
+    emu->clk.mainClk = clock_alloc_clk(config);
 
-    result = (cxt->mainClk != NULL);
+    if(emu->clk.mainClk != NULL)
+    {
+        emu->clk.main_hlr = main_clk_hlr;
+    }
 
-    cxt->init = result;
+    emu->clk.init = (emu->clk.mainClk != NULL);
 
-    return result;
+    return emu->clk.init;
 }
 
 /**
  * Cleans up a given clock module context
  *
- * @param[in] cxt   Context to clean up
+ * @param[in] emu   The main emulator context to clean up.
  */
-void clock_cleanup(clk_cxt_t *cxt)
+void clock_cleanup(cbemu_t emu)
 {
-    if((cxt != NULL) && (cxt->init))
+    if((emu != NULL) && (emu->clk.init))
     {
-        list_free(&cxt->clks, clock_list_free_cb, NULL);
+        list_free(&emu->clk.clks, clock_list_free_cb, NULL);
 
-        clock_free_clk(cxt->mainClk);
+        clock_free_clk(emu->clk.mainClk);
     }
 }
 
@@ -160,19 +165,30 @@ clk_t clock_get_core_clk(cbemu_t emu)
  * Tick the main bus clock. This will update and tick all other applicable clocks
  * based on relative frequency
  *
- * @param[in] cxt   Clock module context to tick the main clock for
+ * @param[in] emu   The main emulator context to tick.
  */
-void clock_main_tick(clk_cxt_t *cxt)
+void clock_main_tick(cbemu_t emu)
 {
     clk_t headClk;
-    clk_period_t remainingTicks = cxt->mainClk->period;
+    clk_period_t remainingTicks;
     clk_period_t ticksToConsume;
     bool rerunLoop = false;
+    bool mainTicked = false;
     listnode_t *iter;
+    clk_cxt_t *cxt;
+
+    if(emu == NULL)
+    {
+        return;
+    }
+
+    cxt = &emu->clk;
+    remainingTicks = cxt->mainClk->period;
 
     if(list_empty(&cxt->clks))
     {
         /* Only the main clock exists, so just tick it. */
+        cxt->main_hlr(cxt->mainClk, emu);
         clock_make_callbacks(cxt->mainClk);
     }
     else
@@ -201,6 +217,18 @@ void clock_main_tick(clk_cxt_t *cxt)
                 /* Main clock will tick before any other clock. Just consume the time until the main clock ticks. */
                 headClk = NULL;
                 ticksToConsume = remainingTicks;
+            }
+
+            /* If we are consuming all the remaining ticks here, then we are going to tick the main clock.
+             * If we have not already, go ahead and tick it prior to ticking any derived clocks. */
+            if((ticksToConsume == remainingTicks) && (!mainTicked))
+            {
+                /* First, allow the ineternal emulator core to process this main clock tick. */
+                cxt->main_hlr(cxt->mainClk, emu);
+
+                /* Now let the rest of the world handle the main clock tick. */
+                clock_make_callbacks(cxt->mainClk);
+                mainTicked = true;
             }
 
             /* Walk the list of clocks */
@@ -240,10 +268,6 @@ void clock_main_tick(clk_cxt_t *cxt)
 
             remainingTicks -= ticksToConsume;
         }
-
-        /* All clocks with fewer remaining ticks than the main clock cycle have been
-           ticked, so now tick the main clock. */
-        clock_make_callbacks(cxt->mainClk);
     }
 }
 

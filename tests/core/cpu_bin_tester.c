@@ -98,13 +98,13 @@ static void run_bin_test(void)
         }
         else
         {
-            cpu_tick(emu);
+            emu_tick(emu);
         }
     } while(!in_opcode);
 
     do
     {
-        cpu_tick(emu);
+        emu_tick(emu);
     } while(!cpu_is_sync(emu));
 
     in_opcode = false;

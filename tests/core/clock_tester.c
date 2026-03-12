@@ -20,6 +20,10 @@ static void counter_tick_cb(clk_t clk, void *userdata)
     *(uint32_t *)userdata += 1;
 }
 
+static void main_tick_handler(clk_t clk, void *userdata)
+{
+}
+
 void test_clock_add(void)
 {
     clk_t clk;
@@ -83,7 +87,7 @@ void test_main_clock_tick(void)
 
     handle = clock_register_tick(emu.clk.mainClk, bool_tick_cb, &ticked);
 
-    clock_main_tick(&emu.clk);
+    clock_main_tick(&emu);
 
     TEST_ASSERT_TRUE(ticked);
 }
@@ -105,12 +109,12 @@ void test_two_clocks_half_freq(void)
     TEST_ASSERT_NOT_NULL(clock_register_tick(emu.clk.mainClk, counter_tick_cb, &mainCnt));
     TEST_ASSERT_NOT_NULL(clock_register_tick(clk, counter_tick_cb, &secCnt));
 
-    clock_main_tick(&emu.clk);
+    clock_main_tick(&emu);
 
     TEST_ASSERT_EQUAL_UINT32(1, mainCnt);
     TEST_ASSERT_EQUAL_UINT32(0, secCnt);
 
-    clock_main_tick(&emu.clk);
+    clock_main_tick(&emu);
 
     TEST_ASSERT_EQUAL_UINT32(2, mainCnt);
     TEST_ASSERT_EQUAL_UINT32(1, secCnt);
@@ -138,13 +142,13 @@ void test_three_clocks_half_double(void)
     TEST_ASSERT_NOT_NULL(clock_register_tick(clk, counter_tick_cb, &secCnt));
     TEST_ASSERT_NOT_NULL(clock_register_tick(clk2, counter_tick_cb, &thrdCnt));
 
-    clock_main_tick(&emu.clk);
+    clock_main_tick(&emu);
 
     TEST_ASSERT_EQUAL_UINT32(1, mainCnt);
     TEST_ASSERT_EQUAL_UINT32(0, secCnt);
     TEST_ASSERT_EQUAL_UINT32(2, thrdCnt);
 
-    clock_main_tick(&emu.clk);
+    clock_main_tick(&emu);
 
     TEST_ASSERT_EQUAL_UINT32(2, mainCnt);
     TEST_ASSERT_EQUAL_UINT32(1, secCnt);
@@ -156,12 +160,14 @@ void setUp(void)
     clock_config_t config;
     config.timing_type = CLOCK_FREQ;
     config.timing.freq = MAIN_CLK_FREQ;
-    clock_init(&emu.clk, &config);
+
+    /* Bypass the internal clock registration of the emulator to unit test. */
+    clock_init(&emu, &config, main_tick_handler);
 }
 
 void tearDown(void)
 {
-    clock_cleanup(&emu.clk);
+    clock_cleanup(&emu);
 }
 
 int main(int argc, char *argv[])

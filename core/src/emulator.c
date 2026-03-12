@@ -7,6 +7,13 @@
 #include "clock_priv.h"
 #include "cpu_priv.h"
 
+static void main_clock_handler(clk_t clk, void *userdata)
+{
+    cbemu_t emu = (cbemu_t)userdata;
+
+    cpu_tick(emu);
+}
+
 cbemu_t emu_init(const emu_config_t *config)
 {
     cbemu_t emu;
@@ -26,7 +33,7 @@ cbemu_t emu_init(const emu_config_t *config)
         initst = bus_init(emu);
 
         if(initst)
-            initst = clock_init(&emu->clk, &config->mainclk_config);
+            initst = clock_init(emu, &config->mainclk_config, main_clock_handler);
 
         if(initst)
             initst = cpu_init(emu);
@@ -49,7 +56,19 @@ void emu_cleanup(cbemu_t emu)
     }
 
     bus_cleanup(emu);
-    clock_cleanup(&emu->clk);
+    clock_cleanup(emu);
 
     free(emu);
+}
+
+void emu_tick(cbemu_t emu)
+{
+    if(emu == NULL)
+    {
+        return;
+    }
+
+    /* Tick the main clock. Tick any earlier pending derived clocks, then call our main
+     * handler back to tick the internal components. */
+    clock_main_tick(emu);
 }

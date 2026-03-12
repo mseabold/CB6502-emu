@@ -12,5 +12,6 @@ typedef struct
 
 cbemu_t emu_init(const emu_config_t *config);
 void emu_cleanup(cbemu_t emu);
+void emu_tick(cbemu_t emu);
 
 #endif /* end of include guard: __EMULATOR_H__ */

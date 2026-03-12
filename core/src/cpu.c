@@ -2047,9 +2047,6 @@ void cpu_tick(cbemu_t emu)
         }
     }
 
-    /* TODO here is up a level? */
-    clock_main_tick(&emu->clk);
-
     CPU_CLEAR_FLAG(&emu->cpu, CPU_CYCLE_CONSUMED);
 }
 
