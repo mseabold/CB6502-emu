@@ -501,3 +501,73 @@ void debug_set_dbginfo(debug_t handle, unsigned int num_dbginfo, cc65_dbginfo *d
         handle->dbginfo = *dbginfo;
     }
 }
+
+/**
+ * Retrieve all of internal CPU register states
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[out] regs     Register info to populate.
+ */
+void debug_get_cpu_regs(debug_t handle, debug_cpu_regs_t *regs)
+{
+    if((handle == NULL) || (regs == NULL))
+    {
+        return;
+    }
+
+    /* Register structure is intentionally the same. */
+    memcpy(regs, &handle->emu->cpu.regs, sizeof(debug_cpu_regs_t));
+}
+
+/**
+ * Peeks a memory address using the debugger.
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[in] addr      The address to peek.
+ *
+ * @return The peeked value at the address.
+ */
+uint8_t debug_peek(debug_t handle, uint16_t addr)
+{
+    if(handle == NULL)
+    {
+        return 0xFF;
+    }
+
+    return bus_peek(handle->emu, addr);
+}
+
+/**
+ * Dumps a section of the emulator memory space using the debugger.
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[in] addr      The base address to begin the dump at.
+ * @param[in,out] len   As input, the length of memory data to dump from the base address.
+ *                      On output, the amount of data actually copied into the buffer.
+ * @param[out] buffer   Buffer to dump the memory data into.
+ */
+void debug_dump(debug_t handle, uint16_t addr, uint16_t *len, uint8_t *buffer)
+{
+    uint32_t index;
+    uint32_t end_addr;
+
+    if((handle == NULL) || (len == NULL) || (*len == 0) || (buffer == NULL))
+    {
+        return;
+    }
+
+    end_addr = (uint32_t)addr + (uint32_t)*len;
+
+    /* Limit end_addr if len was too big and it rolled over. */
+    if(end_addr > 0x10000)
+    {
+        end_addr = 0x10000;
+    }
+
+    for(index = addr; index < end_addr; index++)
+    {
+        buffer[index-addr] = bus_peek(handle->emu, index);
+    }
+
+    *len = (uint16_t)(end_addr - addr);
+}

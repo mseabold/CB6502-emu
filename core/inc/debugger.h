@@ -53,6 +53,19 @@ typedef struct breakpoint_info_s
 } breakpoint_info_t;
 
 /**
+ * Defines the CPU registers that can be retreived via the debugger.
+ */
+typedef struct
+{
+    uint16_t pc;
+    uint8_t sp;
+    uint8_t a;
+    uint8_t x;
+    uint8_t y;
+    uint8_t status;
+} debug_cpu_regs_t;
+
+/**
  * Initializes a debugger instance
  *
  * @param[in] emulator  The emulator instance to attach the debugger to.
@@ -168,5 +181,34 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit);
  * @param[in] dbginfo List if debug information files
  */
 void debug_set_dbginfo(debug_t handle, unsigned int num_dbginfo, cc65_dbginfo *dbginfo);
+
+/**
+ * Retrieve all of internal CPU register states
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[out] regs     Register info to populate.
+ */
+void debug_get_cpu_regs(debug_t handle, debug_cpu_regs_t *regs);
+
+/**
+ * Peeks a memory address using the debugger.
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[in] addr      The address to peek.
+ *
+ * @return The peeked value at the address.
+ */
+uint8_t debug_peek(debug_t handle, uint16_t addr);
+
+/**
+ * Dumps a section of the emulator memory space using the debugger.
+ *
+ * @param[in] handle    The debugger handle.
+ * @param[in] addr      The base address to begin the dump at.
+ * @param[in,out] len   As input, the length of memory data to dump from the base address.
+ *                      On output, the amount of data actually copied into the buffer.
+ * @param[out] buffer   Buffer to dump the memory data into.
+ */
+void debug_dump(debug_t handle, uint16_t addr, uint16_t *len, uint8_t *buffer);
 
 #endif /* end of include guard: __DEBUGGER_H__ */
