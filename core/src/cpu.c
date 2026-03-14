@@ -2071,6 +2071,13 @@ uint8_t cpu_step(cbemu_t emu)
 
     return (uint8_t)elapsed;
 }
+
+bool cpu_is_subroutine(cbemu_t emu)
+{
+    uint8_t opcode = bus_peek(emu, emu->cpu.regs.pc);
+
+    return opcode == 0x20;
+}
 #if 0
 
 void cpu_disassemble(size_t bufLen, char *buffer)
