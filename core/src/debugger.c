@@ -4,13 +4,12 @@
 
 /* TODO portability from linux */
 #include <strings.h>
-#include <signal.h>
 
 #include "dbginfo.h"
 #include "debugger.h"
-#include "cpu.h"
-#include "sys.h"
 #include "log.h"
+#include "cpu_priv.h"
+#include "bus_priv.h"
 
 #define MAX_BREAKPOINTS 8
 #define FNV1a_OFFSET_BASIS 2166136261
@@ -41,10 +40,10 @@ typedef struct
 
 struct debug_s
 {
+    cbemu_t emu;
     volatile bool sw_break;
     bool exit;
     breakpoint_t breakpoints[MAX_BREAKPOINTS];
-    sys_cxt_t syscxt;
     dbg_label_t labels[LABEL_TABLE_SIZE][LABEL_ENTRIES_PER_BUCKET];
     cc65_dbginfo dbginfo;
 };
@@ -131,21 +130,34 @@ static bool dbg_eval_breakpoints(debug_t handle, uint16_t pc, debug_breakpoint_t
     return false;
 }
 
-debug_t debug_init(sys_cxt_t system_cxt)
+static void debug_step_i(debug_t handle)
+{
+    do
+    {
+        emu_tick(handle->emu);
+    } while(handle->emu->cpu.op_state != OPCODE);
+}
+
+
+debug_t debug_init(cbemu_t emulator)
 {
     debug_t handle;
 
-    if(system_cxt == NULL)
+    if(emulator == NULL)
+    {
         return NULL;
+    }
 
     handle = malloc(sizeof(struct debug_s));
 
     if(handle == NULL)
+    {
         return NULL;
+    }
 
     memset(handle, 0, sizeof(struct debug_s));
 
-    handle->syscxt = system_cxt;
+    handle->emu = emulator;
 
     return handle;
 }
@@ -348,23 +360,22 @@ bool debug_next(debug_t handle, debug_breakpoint_t *breakpoint_hit)
     if(handle == NULL)
         return false;
 
-    if(cpu_is_subroutine())
+    if(cpu_is_subroutine(handle->emu))
     {
-        next_pc = cpu_get_reg(REG_PC) + 3;
-
-        pc = cpu_get_reg(REG_PC);
+        pc = handle->emu->cpu.regs.pc;
+        next_pc = pc + 3;
 
         handle->sw_break = false;
-        while(!handle->sw_break && next_pc != cpu_get_reg(REG_PC))
+        while(!handle->sw_break && next_pc != CPU_GET_REG(handle->emu, pc))
         {
-            cpu_step();
+            debug_step_i(handle);
 
             if(dbg_eval_breakpoints(handle, pc, breakpoint_hit))
             {
                 return true;
             }
 
-            pc = cpu_get_reg(REG_PC);
+            pc = CPU_GET_REG(handle->emu, pc);
         }
 
         if(handle->sw_break)
@@ -376,7 +387,7 @@ bool debug_next(debug_t handle, debug_breakpoint_t *breakpoint_hit)
         }
     }
     else
-        cpu_step();
+        debug_step_i(handle);
 
     return false;
 }
@@ -386,7 +397,7 @@ void debug_step(debug_t handle)
     if(handle == NULL)
         return;
 
-    cpu_step();
+    debug_step_i(handle);
 }
 
 void debug_run(debug_t handle, debug_breakpoint_t *breakpoint_hit)
@@ -398,13 +409,13 @@ void debug_run(debug_t handle, debug_breakpoint_t *breakpoint_hit)
 
     while(!handle->sw_break)
     {
-        if(dbg_eval_breakpoints(handle, cpu_get_reg(REG_PC), breakpoint_hit))
+        if(dbg_eval_breakpoints(handle, CPU_GET_REG(handle->emu, pc), breakpoint_hit))
         {
             return;
         }
         else
         {
-            cpu_step();
+            debug_step_i(handle);
         }
     }
 
@@ -430,14 +441,14 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
 
     while(!is_ret && !handle->sw_break)
     {
-        pc = cpu_get_reg(REG_PC);
+        pc = CPU_GET_REG(handle->emu, pc);
 
         if(dbg_eval_breakpoints(handle, pc, breakpoint_hit))
         {
             return true;
         }
 
-        opcode = sys_peek_mem(handle->syscxt, cpu_get_reg(REG_PC));
+        opcode = bus_peek(handle->emu, pc);
 
         if(opcode == 0x20)
         {
@@ -455,7 +466,7 @@ bool debug_finish(debug_t handle, debug_breakpoint_t *breakpoint_hit)
             }
         }
 
-        cpu_step();
+        debug_step_i(handle);
     }
 
     if(handle->sw_break && breakpoint_hit != NULL)

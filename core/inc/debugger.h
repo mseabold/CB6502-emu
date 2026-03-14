@@ -10,8 +10,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "sys.h"
 #include "dbginfo.h"
+#include "emulator.h"
 
 /**
  * Handle for a debugger instance.
@@ -55,11 +55,11 @@ typedef struct breakpoint_info_s
 /**
  * Initializes a debugger instance
  *
- * @param[in] system_cxt Context of the system that is being debugged. This is used for memory bus access.
+ * @param[in] emulator  The emulator instance to attach the debugger to.
  *
  * @return The debugger instance, or NULL if there was a error.
  */
-debug_t debug_init(sys_cxt_t system_cxt);
+debug_t debug_init(cbemu_t emulator);
 
 /**
  * Loads label information for an executing image. The file should be in the VICES label format,
