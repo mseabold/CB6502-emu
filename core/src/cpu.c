@@ -603,6 +603,7 @@ static void and(cbemu_t emu)
 
     zerocalc(emu->cpu.regs.status, result);
     signcalc(emu->cpu.regs.status, result);
+    emu->cpu.result = result;
 
     saveaccum(emu->cpu);
     advance_state(&emu->cpu, OPCODE, true);
@@ -915,6 +916,7 @@ static void eor(cbemu_t emu)
 
     zerocalc(emu->cpu.regs.status, result);
     signcalc(emu->cpu.regs.status, result);
+    emu->cpu.result = result;
 
     saveaccum(emu->cpu);
     advance_state(&emu->cpu, OPCODE, true);
