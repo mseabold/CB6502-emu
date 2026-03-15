@@ -4,7 +4,7 @@
 
 #include "dbgcli.h"
 #include "debugger.h"
-#include "cpu.h"
+#include "disassemble.h"
 #include "os_signal.h"
 
 #define CMD_DELIM " "
@@ -28,7 +28,7 @@ typedef struct dbg_cmd_s
 
 typedef struct dbgcli_context_s
 {
-    sys_cxt_t system;
+    cbemu_t emulator;
     debug_t debugger;
     bool exit;
 } dbgcli_context_t;
@@ -97,19 +97,19 @@ static void cmd_finish(uint32_t num_params, cmd_param_t *params)
 
 static void cmd_registers(uint32_t num_params, cmd_param_t *params)
 {
-    cpu_regs_t regs;
+    debug_cpu_regs_t regs;
     char flags[9];
 
-    cpu_get_regs(&regs);
+    debug_get_cpu_regs(cxt.debugger, &regs);
 
-    flags[0] = (regs.s & 0x80) ? 'N' : '-';
-    flags[1] = (regs.s & 0x40) ? 'V' : '-';
+    flags[0] = (regs.status & 0x80) ? 'N' : '-';
+    flags[1] = (regs.status & 0x40) ? 'V' : '-';
     flags[2] = '-';
-    flags[3] = (regs.s & 0x10) ? 'B' : '-';
-    flags[4] = (regs.s & 0x08) ? 'D' : '-';
-    flags[5] = (regs.s & 0x04) ? 'I' : '-';
-    flags[6] = (regs.s & 0x02) ? 'Z' : '-';
-    flags[7] = (regs.s & 0x01) ? 'C' : '-';
+    flags[3] = (regs.status & 0x10) ? 'B' : '-';
+    flags[4] = (regs.status & 0x08) ? 'D' : '-';
+    flags[5] = (regs.status & 0x04) ? 'I' : '-';
+    flags[6] = (regs.status & 0x02) ? 'Z' : '-';
+    flags[7] = (regs.status & 0x01) ? 'C' : '-';
     flags[8] = 0;
 
     printf("\tA:  %02x\t\tSP: %02x\n", regs.a, regs.sp);
@@ -163,6 +163,7 @@ static void cmd_examine(uint32_t num_params, cmd_param_t *params)
     uint16_t i;
     uint16_t addr;
     uint16_t col;
+    uint8_t *buf;
 
     if(num_params == 0 || !params[0].int_valid || (num_params >= 2 && !params[1].int_valid))
         return;
@@ -174,6 +175,14 @@ static void cmd_examine(uint32_t num_params, cmd_param_t *params)
 
     addr = (uint16_t)params[0].ival;
 
+    buf = malloc(len);
+
+    if(buf == NULL)
+    {
+        return;
+    }
+
+    debug_dump(cxt.debugger, addr, &len, buf);
 
     for(i=0,col=0; i<len; ++i)
     {
@@ -181,7 +190,7 @@ static void cmd_examine(uint32_t num_params, cmd_param_t *params)
             printf("%04x:", addr + 16*(i/16));
 
         ++col;
-        printf(" %02x", sys_peek_mem(cxt.system, addr+i));
+        printf(" %02x", buf[i]);
 
         if(col == 16)
         {
@@ -192,6 +201,8 @@ static void cmd_examine(uint32_t num_params, cmd_param_t *params)
 
     if(col != 0)
         printf("\n");
+
+    free(buf);
 
 }
 
@@ -277,9 +288,9 @@ static void dbgcli_ctrlc_handler(os_signal_t signal, void *userdata)
     debug_break((debug_t)userdata);
 }
 
-int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
+int dbgcli_run(cbemu_t emulator, dbgcli_config_t *config)
 {
-    char disbuf[256];
+    disassemble_string_t disbuf;
     char inbuf[256];
     char *input;
     uint32_t num_params;
@@ -287,7 +298,7 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
     const dbg_cmd_t *cmd = NULL;
     os_sigcb_t sighandle;
 
-    cxt.debugger = debug_init(system);
+    cxt.debugger = debug_init(emulator);
 
     if(cxt.debugger == NULL)
         return 1;
@@ -304,14 +315,14 @@ int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config)
     }
 
     cxt.exit = false;
-    cxt.system = system;
+    cxt.emulator = emulator;
 
     sighandle = os_register_signal(OS_CTRLC, dbgcli_ctrlc_handler, cxt.debugger);
 
     while(!cxt.exit)
     {
-        cpu_disassemble(sizeof(disbuf), disbuf);
-        printf("%s\n", disbuf);
+        disassemble_pc_string(cxt.emulator, &disbuf);
+        printf("%s\n", disbuf.opcode_str);
         printf(">");
         fflush(stdout);
         input = fgets(inbuf, sizeof(inbuf), stdin);

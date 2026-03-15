@@ -8,6 +8,8 @@ target_link_libraries(cb6502 PUBLIC
     at28c256
     via
     acia
+    memory
+    syslog_log
 )
 
 add_executable(cbdbg cbdbg.c)
@@ -15,13 +17,13 @@ add_executable(cbdbg cbdbg.c)
 target_link_libraries(cbdbg dbgcli cb6502)
 
 # Console application currently has linux dependencies (syslog, argp)
-if(UNIX)
-add_executable(cbconsole cbconsole.c)
-
-target_link_libraries(cbconsole
-    PRIVATE
-        cb6502
-        fe_ncurses
-        syslog_log
-)
-endif()
+#if(UNIX)
+#add_executable(cbconsole cbconsole.c)
+#
+#target_link_libraries(cbconsole
+#    PRIVATE
+#        cb6502
+#        fe_ncurses
+#        syslog_log
+#)
+#endif()

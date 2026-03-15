@@ -3,13 +3,15 @@
 
 #include "cb6502.h"
 #include "dbgcli.h"
-#include "acia.h"
+
+#define ACIA_SOCKNAME "acia.sock"
 
 int main(int argc, char *argv[])
 {
     char *labels_file = NULL;
-    char *acia_socket = (char *)ACIA_DEFAULT_SOCKNAME;
+    char *acia_socket = (char *)ACIA_SOCKNAME;
     int c;
+    cbemu_t emu;
 
     dbgcli_config_t dbg_cfg;
 
@@ -36,7 +38,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if(!cb6502_init(argv[optind], acia_socket))
+    if(!cb6502_init(argv[optind], acia_socket, &emu))
         return 1;
 
     dbg_cfg.valid_flags = 0;
@@ -47,7 +49,7 @@ int main(int argc, char *argv[])
         dbg_cfg.label_file = labels_file;
     }
 
-    dbgcli_run(cb6502_get_sys(), &dbg_cfg);
+    dbgcli_run(emu, &dbg_cfg);
 
     cb6502_destroy();
 

@@ -1,2 +1,2 @@
 add_subdirectory(dbgcli)
-add_subdirectory(ncurses)
+#add_subdirectory(ncurses)

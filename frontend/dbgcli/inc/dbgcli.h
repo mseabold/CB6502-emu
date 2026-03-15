@@ -1,7 +1,7 @@
 #ifndef __DBGCLI_H__
 #define __DBGCLI_H__
 
-#include "sys.h"
+#include "emulator.h"
 
 typedef struct dbgcli_config_s
 {
@@ -15,12 +15,12 @@ typedef struct dbgcli_config_s
  * Take control of the program execution and begins the debugger CLI
  * frontend. Will not return until program exit is requested.
  *
- * @param[in] system System context that will be controlled by the debugger.
+ * @param[in] emulator The emulator context to attach the debugger to.
  * @param[in] config Configuration information for the dbgcli instance.
  *
  * @return Exit code suitable to be returned by main()
  */
 
-int dbgcli_run(sys_cxt_t system, dbgcli_config_t *config);
+int dbgcli_run(cbemu_t emulator, dbgcli_config_t *config);
 
 #endif /* end of include guard: __DBGCLI_H__ */
