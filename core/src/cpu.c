@@ -13,6 +13,7 @@
 #include "cpu_priv.h"
 #include "bus_priv.h"
 #include "clock_priv.h"
+#include "cpu_opcodes.h"
 
 #define FLAG_CARRY     0x01
 #define FLAG_ZERO      0x02
@@ -101,29 +102,7 @@ void cpu_reset()
 }
 
 
-typedef enum {
-    IMP,
-    ACC,
-    IMM,
-    ZP,
-    ZPX,
-    ZPY,
-    REL,
-    ABSO,
-    ABSX,
-    ABSY,
-    IND,
-    INDX,
-    INDY,
-    INDZ,
-    ABIN,
-    ZPREL,
-    NUM_ADDR_MODES
-} cpu_addr_mode_t;
-
-const cpu_addr_mode_t addrtable[256];
 static void (*optable[256])(cbemu_t);
-static uint8_t penaltyop, penaltyaddr;
 static const uint8_t branch_shift_map[] = {
     7, /* N */
     6, /* V */
@@ -1877,7 +1856,7 @@ static void (*addr_handlers[NUM_ADDR_MODES])(cbemu_t emu) =
     zprel,
 };
 
-static uint8_t addr_lengths[NUM_ADDR_MODES] =
+const uint8_t addr_lengths[NUM_ADDR_MODES] =
 {
     1,
     1,
@@ -1959,26 +1938,6 @@ static const uint32_t ticktable[256] =
 /* F */      2,    5,    2,    8,    4,    4,    6,    6,    2,    4,    4,    7,    4,    4,    7,    5   /* F */
 };
 
-const char *mnemonics[256] =
-{
-/*         | 0    |  1    |  2    |  3    |  4    |  5    |  6    |  7    |  8    |  9    |  A    |  B    |  C    |  D    |  E    |  F  |     */
-/* 0 */      "BRK",  "ORA",  "NOP",  "NOP",  "TSB",  "ORA",  "ASL", "RMB0",  "PHP",  "ORA",  "ASL",  "NOP",  "TSB",  "ORA",  "ASL",  "BBR0", /* 0 */
-/* 1 */      "BPL",  "ORA",  "ORA",  "NOP",  "TRB",  "ORA",  "ASL", "RMB1",  "CLC",  "ORA",  "NOP",  "NOP",  "TRB",  "ORA",  "ASL",  "BBR1", /* 1 */
-/* 2 */      "JSR",  "AND",  "NOP",  "NOP",  "BIT",  "AND",  "ROL", "RMB2",  "PLP",  "AND",  "ROL",  "NOP",  "BIT",  "AND",  "ROL",  "BBR2", /* 2 */
-/* 3 */      "BMI",  "AND",  "AND",  "NOP",  "BIT",  "AND",  "ROL", "RMB3",  "SEC",  "AND",  "NOP",  "NOP",  "BIT",  "AND",  "ROL",  "BBR3", /* 3 */
-/* 4 */      "RTI",  "EOR",  "NOP",  "NOP",  "NOP",  "EOR",  "LSR", "RMB4",  "PHA",  "EOR",  "LSR",  "NOP",  "JMP",  "EOR",  "LSR",  "BBR4", /* 4 */
-/* 5 */      "BVC",  "EOR",  "EOR",  "NOP",  "NOP",  "EOR",  "LSR", "RMB5",  "CLI",  "EOR",  "PHY",  "NOP",  "NOP",  "EOR",  "LSR",  "BBR5", /* 5 */
-/* 6 */      "RTS",  "ADC",  "NOP",  "NOP",  "STZ",  "ADC",  "ROR", "RMB6",  "PLA",  "ADC",  "ROR",  "NOP",  "JMP",  "ADC",  "ROR",  "BBR6", /* 6 */
-/* 7 */      "BVS",  "ADC",  "ADC",  "NOP",  "STZ",  "ADC",  "ROR", "RMB7",  "SEI",  "ADC",  "PLY",  "NOP",  "JMP",  "ADC",  "ROR",  "BBR7", /* 7 */
-/* 8 */      "BRA",  "STA",  "NOP",  "NOP",  "STY",  "STA",  "STX", "SMB0",  "DEY",  "BIT",  "TXA",  "NOP",  "STY",  "STA",  "STX",  "BBS0", /* 8 */
-/* 9 */      "BCC",  "STA",  "STA",  "NOP",  "STY",  "STA",  "STX", "SMB1",  "TYA",  "STA",  "TXS",  "NOP",  "STZ",  "STA",  "STZ",  "BBS1", /* 9 */
-/* A */      "LDY",  "LDA",  "LDX",  "NOP",  "LDY",  "LDA",  "LDX", "SMB2",  "TAY",  "LDA",  "TAX",  "NOP",  "LDY",  "LDA",  "LDX",  "BBS2", /* A */
-/* B */      "BCS",  "LDA",  "LDA",  "NOP",  "LDY",  "LDA",  "LDX", "SMB3",  "CLV",  "LDA",  "TSX",  "NOP",  "LDY",  "LDA",  "LDX",  "BBS3", /* B */
-/* C */      "CPY",  "CMP",  "NOP",  "NOP",  "CPY",  "CMP",  "DEC", "SMB4",  "INY",  "CMP",  "DEX",  "WAI",  "CPY",  "CMP",  "DEC",  "BBS4", /* C */
-/* D */      "BNE",  "CMP",  "CMP",  "NOP",  "NOP",  "CMP",  "DEC", "SMB5",  "CLD",  "CMP",  "PHX",  "STP",  "NOP",  "CMP",  "DEC",  "BBS5", /* D */
-/* E */      "CPX",  "SBC",  "NOP",  "NOP",  "CPX",  "SBC",  "INC", "SMB6",  "INX",  "SBC",  "NOP",  "NOP",  "CPX",  "SBC",  "INC",  "BBS6", /* E */
-/* F */      "BEQ",  "SBC",  "SBC",  "NOP",  "NOP",  "SBC",  "INC", "SMB7",  "SED",  "SBC",  "PLX",  "NOP",  "NOP",  "SBC",  "INC",  "BBS7"  /* F */
-};
 
 /**
  * Initialize the 6502 emulator. This sets the memory access functions as well as performs

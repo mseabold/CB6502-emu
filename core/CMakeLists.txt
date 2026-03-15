@@ -10,6 +10,7 @@ add_library(cbemu STATIC
     src/bus.c
     src/clock.c
     src/emulator.c
+    src/disassemble.c
 )
 
 target_include_directories(cbemu
