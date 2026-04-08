@@ -124,7 +124,7 @@ static bool cb6502_acia_init(const char *acia_socket)
         return false;
     }
 
-    cb6502_cxt.acia = acia_init(acia_transport, acia_transport_params, cb6502_cxt.acia_clk);
+    cb6502_cxt.acia = acia_init(cb6502_cxt.emulator, acia_transport, acia_transport_params, cb6502_cxt.acia_clk);
 
     /* Note clock will be removed by destroy call if there is an error. */
     if(cb6502_cxt.acia == NULL)
@@ -135,7 +135,7 @@ static bool cb6502_acia_init(const char *acia_socket)
     decoder.type = BUSDECODE_RANGE;
     decoder.value.range.addr_start = ACIA_BASE;
     decoder.value.range.addr_end = ACIA_BASE + ACIA_SIZE - 1;
-    acia_register(cb6502_cxt.acia, cb6502_cxt.emulator, &decoder, ACIA_BASE);
+    acia_register(cb6502_cxt.acia, &decoder, ACIA_BASE, false);
 
     return true;
 }
