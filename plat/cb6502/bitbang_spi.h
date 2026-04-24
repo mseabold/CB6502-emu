@@ -3,6 +3,7 @@
 
 #include "via.h"
 
-const via_protocol_t *bitbang_spi_get_prot(void);
+bool bitbang_spi_init(via_t via);
+void bitbang_spi_cleanup(void);
 
 #endif /* end of include guard: __BITBANG_SPI_H__ */

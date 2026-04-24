@@ -222,8 +222,12 @@ bool cb6502_init(const char *rom_file, const char *acia_socket, cbemu_t *emulato
         goto error;
     }
 
-    via_register_protocol(cb6502_cxt.via, bitbang_spi_get_prot(), NULL);
     sdcard_init("/mnt/sdcard_fs.bin");
+
+    if(!bitbang_spi_init(cb6502_cxt.via))
+    {
+        goto error;
+    }
     //printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
 
     return true;
@@ -235,6 +239,8 @@ error:
 
 void cb6502_destroy(void)
 {
+    bitbang_spi_cleanup();
+
     if(cb6502_cxt.rom != NULL)
     {
         at28c256_destroy(cb6502_cxt.rom);

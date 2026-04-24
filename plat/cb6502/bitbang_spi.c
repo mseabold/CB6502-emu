@@ -1,4 +1,5 @@
-#include <stdio.h>
+#include <string.h>
+
 #include "bitbang_spi.h"
 #include "via.h"
 #include "sdcard.h"
@@ -11,6 +12,9 @@
 
 typedef struct bitbang_spi_cxt_s
 {
+    via_t via;
+    via_cb_handle_t via_cb;
+
     uint8_t SPI_cnt;
     uint8_t SPI_out;
     bool spi_clk_state;
@@ -21,11 +25,33 @@ typedef struct bitbang_spi_cxt_s
 
 static bitbang_spi_cxt_t cxt;
 
-static void bitbang_spi_write(via_port_data_t data_type, uint8_t data, void *userdata)
+static void bitbang_spi_update_outputs()
 {
-    if(data_type != VIA_PORTB)
-        return;
+    uint8_t data = 0;
 
+    if(cxt.sdcard_sel)
+    {
+        if(cxt.sdcard_in & 0x80)
+        {
+            data |= SPI_MISO;
+        }
+    }
+    else
+    {
+        /* Pull up. */
+        data |= SPI_MISO;
+    }
+
+    if(sdcard_detect())
+    {
+        data |= SPI_DETECT;
+    }
+
+    via_write_data_port(cxt.via, false, (SPI_MISO | SPI_DETECT), data);
+}
+
+static void bitbang_portb_write(uint8_t data)
+{
     /* SS is active low. */
     cxt.sdcard_sel = (data & SPI_SS_SDCARD) == 0;
 
@@ -71,43 +97,45 @@ static void bitbang_spi_write(via_port_data_t data_type, uint8_t data, void *use
     }
 
     cxt.spi_clk_state = (data & SPI_CLK) == SPI_CLK;
+
+    bitbang_spi_update_outputs();
 }
 
-static void bitbang_spi_read(via_port_data_t data_type, uint8_t *data, void *userdata)
+static void bitbang_spi_via_cb(via_t via, const via_event_data_t *event, void *userdata)
 {
-    if(data_type != VIA_PORTB || data == NULL)
-        return;
-
-    if(cxt.sdcard_sel)
+    if((event->type == VIA_EV_PORT_CHANGE) && (event->data.port == VIA_PORTB))
     {
-        if(cxt.sdcard_in & 0x80)
-            *data |= SPI_MISO;
-        else
-            *data &= ~SPI_MISO;
-    }
-    else
-    {
-        /* Pull up. */
-        *data |= SPI_MISO;
-    }
-
-    if(sdcard_detect())
-    {
-        *data |= SPI_DETECT;
-    }
-    else
-    {
-        *data &= ~SPI_DETECT;
+        bitbang_portb_write(via_read_data_port(via, false));
     }
 }
 
-const via_protocol_t bitbang_spi_prot =
+bool bitbang_spi_init(via_t via)
 {
-    bitbang_spi_write,
-    bitbang_spi_read
-};
+    if(via == NULL)
+    {
+        return false;
+    }
 
-const via_protocol_t *bitbang_spi_get_prot(void)
+    memset(&cxt, 0, sizeof(cxt));
+
+    cxt.via = via;
+    cxt.via_cb = via_register_callback(via, bitbang_spi_via_cb, &cxt);
+
+    if(cxt.via_cb == NULL)
+    {
+        return false;
+    }
+
+    bitbang_spi_update_outputs();
+
+    return true;
+}
+
+void bitbang_spi_cleanup(void)
 {
-    return &bitbang_spi_prot;
+    if(cxt.via_cb != NULL)
+    {
+        via_unregister_callback(cxt.via, cxt.via_cb);
+        cxt.via_cb = NULL;
+    }
 }

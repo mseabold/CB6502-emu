@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "util.h"
 
 #define DATAB 0x00
 #define DATAA 0x01
@@ -21,26 +22,28 @@
 #define DA2   0x0F
 #define REG_MAX DA2
 
-#define MAX_PROTOS 8
-
-typedef struct proto_entry_s
+typedef struct
 {
-    const via_protocol_t *proto;
+    via_event_callback_t callback;
     void *userdata;
-} proto_entry_t;
+    listnode_t node;
+} via_callback_info_t;
 
 struct via_s
 {
-    uint8_t data_a;
-    uint8_t dirmask_a;
-    uint8_t data_b;
-    uint8_t dirmask_b;
+    uint8_t ira;
+    uint8_t ora;
+    uint8_t ddra;
+
+    uint8_t irb;
+    uint8_t orb;
+    uint8_t ddrb;
+
     bus_cb_handle_t bus_handle;
     cbemu_t emu;
     bool mask_base;
     uint16_t base;
-
-    proto_entry_t protocols[MAX_PROTOS];
+    listnode_t callbacks;
 };
 
 static void via_bus_write_cb(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
@@ -90,6 +93,19 @@ static const bus_handlers_t via_bus_handlers =
     via_bus_read_cb /* TODO Implement a peek callback if for any read operations they may have actions on read. */
 };
 
+static void via_make_callbacks(via_t handle, const via_event_data_t *event)
+{
+    via_callback_info_t *info;
+    listnode_t *node;
+
+    list_iterate(&handle->callbacks, node)
+    {
+        info = list_container(node, via_callback_info_t, node);
+
+        info->callback(handle, event, info->userdata);
+    }
+}
+
 via_t via_init(void)
 {
     via_t cxt;
@@ -100,14 +116,21 @@ via_t via_init(void)
         return NULL;
 
     memset(cxt, 0, sizeof(struct via_s));
+    list_init(&cxt->callbacks);
 
     return cxt;
 }
 
 void via_cleanup(via_t via)
 {
-    if(via != NULL)
-        free(via);
+    if(via == NULL)
+    {
+        return;
+    }
+
+    list_free_offset(&via->callbacks, via_callback_info_t, node);
+
+    free(via);
 }
 
 bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base)
@@ -130,38 +153,55 @@ bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *de
 
 void via_write(via_t handle, uint8_t reg, uint8_t val)
 {
-    uint8_t i;
+    uint8_t old_val;
+    bool dispatch = false;
+    via_event_data_t event;
 
     if(handle == NULL)
         return;
 
+    memset(&event, 0, sizeof(event));
+    event.type = VIA_EV_PORT_CHANGE;
+
     switch(reg)
     {
         case DDRA:
-            handle->dirmask_a = val;
+            if(handle->ddra != val)
+            {
+                handle->ddra = val;
+                dispatch = true;
+                event.data.port = VIA_PORTA;
+            }
             break;
         case DATAA:
-            handle->data_a = val;
-
-            for(i=0; i<MAX_PROTOS; ++i)
+            if(handle->ora != val)
             {
-                if(handle->protocols[i].proto != NULL)
-                    handle->protocols[i].proto->put(VIA_PORTA, val, handle->protocols[i].userdata);
+                handle->ora = val;
+                dispatch = true;
+                event.data.port = VIA_PORTA;
             }
             break;
         case DDRB:
-            handle->dirmask_b = val;
-            break;
-        case DATAB:
-            handle->data_b = val;
-
-            for(i=0; i<MAX_PROTOS; ++i)
+            if(handle->ddrb != val)
             {
-                if(handle->protocols[i].proto != NULL)
-                    handle->protocols[i].proto->put(VIA_PORTB, val, handle->protocols[i].userdata);
+                handle->ddrb = val;
+                dispatch = true;
+                event.data.port = VIA_PORTB;
             }
             break;
+        case DATAB:
+            if(handle->orb != val)
+            {
+                handle->orb = val;
+                dispatch = true;
+                event.data.port = VIA_PORTB;
+            }
+            break;
+    }
 
+    if(dispatch)
+    {
+        via_make_callbacks(handle, &event);
     }
 }
 
@@ -176,78 +216,102 @@ uint8_t via_read(via_t handle, uint8_t reg)
     switch(reg)
     {
         case DDRA:
-            return handle->dirmask_a;
+            return handle->ddra;
         case DDRB:
-            return handle->dirmask_b;
+            return handle->ddrb;
+
         case DATAA:
-            // "Pull up" pins before asking protocols to drive them
-            out = 0xff;
-
-            for(i=0; i<MAX_PROTOS; ++i)
-            {
-                if(handle->protocols[i].proto != NULL)
-                    handle->protocols[i].proto->get(VIA_PORTA, &out, handle->protocols[i].userdata);
-            }
-
-            // Combine input bits with output bits from data register
-            out = (out & ~handle->dirmask_a) | (handle->data_a & handle->dirmask_a);
-            return out;
+            /* In reality, PORTA is a bit special in that output pins always read back
+             * the physical pin state rather than the current output register state. In
+             * practice, this is difficult/not very meaningful to emulate, so we won't. */
+            return ((handle->ira & ~handle->ddra) | (handle->ora & handle->ddra));
         case DATAB:
-            // "Pull up" pins before asking protocols to drive them
-            out = 0xff;
-
-            for(i=0; i<MAX_PROTOS; ++i)
-            {
-                if(handle->protocols[i].proto != NULL)
-                    handle->protocols[i].proto->get(VIA_PORTB, &out, handle->protocols[i].userdata);
-            }
-
-            // Combine input bits with output bits from data register
-            out = (out & ~handle->dirmask_b) | (handle->data_b & handle->dirmask_b);
-            return out;
+            return ((handle->irb & ~handle->ddrb) | (handle->orb & handle->ddrb));
     }
     return 0;
 }
 
-bool via_register_protocol(via_t handle, const via_protocol_t *protocol, void *userdata)
+via_cb_handle_t via_register_callback(via_t handle, via_event_callback_t callback, void *userdata)
 {
-    uint8_t i;
+    via_callback_info_t *info;
 
-    if(handle == NULL)
-        return false;
-
-    if(protocol == NULL || protocol->put == NULL || protocol->get && NULL)
-        return false;
-
-    for(i=0; i<MAX_PROTOS; ++i)
+    if((handle == NULL) || (callback == NULL))
     {
-        if(handle->protocols[i].proto == NULL)
-        {
-            handle->protocols[i].proto = protocol;
-            handle->protocols[i].userdata = userdata;
-            return true;
-        }
+        return NULL;
     }
 
-    return false;
+    info = malloc(sizeof(via_callback_info_t));
+
+    if(info != NULL)
+    {
+        memset(info, 0, sizeof(via_callback_info_t));
+
+        info->callback = callback;
+        info->userdata = userdata;
+
+        list_add_tail(&handle->callbacks, &info->node);
+    }
+
+    return info;
 }
 
-void via_unregister_protocol(via_t handle, const via_protocol_t *protocol)
+void via_unregister_callback(via_t handle, via_cb_handle_t cb_handle)
 {
-    uint8_t i;
+    via_callback_info_t *info = (via_callback_info_t *)cb_handle;
 
-    if(handle == NULL)
-        return;
-
-    if(protocol == NULL)
-        return;
-
-    for(i=0; i<MAX_PROTOS; ++i)
+    if((handle == NULL) || (cb_handle == NULL))
     {
-        if(handle->protocols[i].proto == protocol)
-        {
-            handle->protocols[i].proto = NULL;
-            handle->protocols[i].userdata = NULL;
-        }
+        return;
     }
+
+    list_remove(&info->node);
+
+    free(info);
+}
+
+void via_write_data_port(via_t handle, bool porta, uint8_t mask, uint8_t data)
+{
+    if((handle == NULL) || (mask == 0))
+    {
+        return;
+    }
+
+    /* TODO: handle latching. For now, just update ira directly. */
+    if(porta)
+    {
+        handle->ira = (handle->ira & ~mask) | (data & mask);
+    }
+    else
+    {
+        handle->irb = (handle->irb & ~mask) | (data & mask);
+    }
+}
+
+void via_write_ctrl(via_t handle, via_ctrl_pin_t pin, bool val)
+{
+    /* Not supported yet. */
+}
+
+uint8_t via_read_data_port(via_t handle, bool porta)
+{
+    if(handle == NULL)
+    {
+        return 0;
+    }
+
+    /* For now, merge the output pins from the via with the current input states externally. */
+    if(porta)
+    {
+        return (handle->ora & handle->ddra) | (handle->ira & ~handle->ddra);
+    }
+    else
+    {
+        return (handle->orb & handle->ddrb) | (handle->irb & ~handle->ddrb);
+    }
+}
+
+bool via_read_ctrl(via_t handle, via_ctrl_pin_t pin)
+{
+    /* Not supported yet. */
+    return false;
 }
