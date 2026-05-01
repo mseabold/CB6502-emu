@@ -187,6 +187,8 @@ bool cb6502_init(const char *rom_file, const char *acia_socket, cbemu_t *emulato
         return false;
     }
 
+    log_set_handler(console_log_print);
+    log_set_level(lDEBUG);
     memset(&cb6502_cxt, 0, sizeof(cb6502_cxt));
 
     config.mainclk_config.timing_type = CLOCK_FREQ;
@@ -229,6 +231,7 @@ bool cb6502_init(const char *rom_file, const char *acia_socket, cbemu_t *emulato
         goto error;
     }
     //printf("sdcard init %s\n", sdcard_init("/mnt/sdcard_fs.bin") ? "success" : "failure");
+    //
 
     return true;
 
