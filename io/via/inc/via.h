@@ -42,11 +42,6 @@ typedef struct
 typedef struct via_s *via_t;
 typedef void *via_cb_handle_t;
 
-#define VIA_CTRL_CA1 0x01
-#define VIA_CTRL_CA2 0x02
-#define VIA_CTRL_CB1 0x04
-#define VIA_CTRL_CB2 0x08
-
 /**
  * Prototype for a VIA event handler callback that can be registered with a VIA module.
  *

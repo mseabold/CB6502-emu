@@ -14,6 +14,8 @@
  *
  *  HW1) CA1 can be used for handshaking and latching. Hwo does PCR affect this? I believe PCR
  *       controls the edfe of IRA latching, but does it affect DATA_TAKEN for handshaking?
+ *  HW2) Previous testing indicating changing DDR with latching enabled trigger in IR latch.
+ *       Does this apply to pins already configured as inputs?
  */
 
 #define DATAB 0x00
@@ -45,19 +47,19 @@ typedef struct
 
 typedef struct
 {
-    uint8_t t1_ctrl : 2;
-    uint8_t t2_ctrl : 1;
-    uint8_t sr_ctrl : 3;
-    uint8_t pb_latch : 1;
     uint8_t pa_latch : 1;
+    uint8_t pb_latch : 1;
+    uint8_t sr_ctrl : 3;
+    uint8_t t2_ctrl : 1;
+    uint8_t t1_ctrl : 2;
 } acr_bits_t;
 
 typedef struct
 {
-    uint8_t cb1_ctrl : 3;
-    uint8_t cb2_ctrl : 1;
-    uint8_t ca1_ctrl : 3;
-    uint8_t ca2_ctrl : 1;
+    uint8_t ca1_ctrl : 1;
+    uint8_t ca2_ctrl : 3;
+    uint8_t cb1_ctrl : 1;
+    uint8_t cb2_ctrl : 3;
 } pcr_bits_t;
 
 typedef union
@@ -167,7 +169,9 @@ static bool via_ddr_write(via_t handle, via_port_state_t *port, uint8_t val)
     {
         /* HW Testing has shown then switch a pin to input
          * while latching is enabled triggers a latch of current
-         * pin state. */
+         * pin state.
+         *
+         * *See HW2* */
         if(handle->acr.bits.pa_latch)
         {
             /* Check which ddra bits have change 1->0 */
@@ -280,7 +284,7 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             if(via_ddr_write(handle, &handle->portb, val))
             {
                 dispatch = true;
-                event.data.port = VIA_PORTA;
+                event.data.port = VIA_PORTB;
             }
             break;
         case DATAB:
