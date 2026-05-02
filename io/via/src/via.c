@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "bus.h"
 #include "util.h"
 
 #include "via.h"
@@ -216,6 +217,7 @@ via_t via_init(void)
 
     memset(cxt, 0, sizeof(struct via_s));
     list_init(&cxt->callbacks);
+    cxt->voter = BUS_SIGNAL_INVALID_VOTER;
 
     return cxt;
 }
@@ -227,27 +229,58 @@ void via_cleanup(via_t via)
         return;
     }
 
+    if(via->voter != BUS_SIGNAL_INVALID_VOTER)
+    {
+        emu_bus_unregister_sig_voter(via->emu, via->voter);
+    }
+
+    if(via->bus_handle != NULL)
+    {
+        emu_bus_unregister(via->emu, via->bus_handle);
+    }
+
     list_free_offset(&via->callbacks, via_callback_info_t, node);
 
     free(via);
 }
 
-bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base)
+bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base, bool irq)
 {
-    if((handle == NULL) || (emu == NULL) || (decoder == NULL))
+    bool error = false;
+
+    if((handle == NULL) || (emu == NULL) || (decoder == NULL) || (handle->bus_handle != NULL) || (handle->voter != BUS_SIGNAL_INVALID_VOTER))
     {
         return false;
     }
 
+    handle->emu = emu;
     handle->bus_handle = emu_bus_register(emu, decoder, &via_bus_handlers, handle);
 
     if(handle->bus_handle != NULL)
     {
-        handle->emu = emu;
         handle->base = base;
     }
+    else
+    {
+        error = true;
+    }
 
-    return (handle->bus_handle != NULL);
+    if(irq && !error)
+    {
+        handle->voter = emu_bus_register_sig_voter(handle->emu);
+
+        if(handle->voter == BUS_SIGNAL_INVALID_VOTER)
+        {
+            error = true;
+
+            if(handle->bus_handle != NULL)
+            {
+                emu_bus_unregister(emu, handle->bus_handle);
+            }
+        }
+    }
+
+    return !error;
 }
 
 void via_write(via_t handle, uint8_t reg, uint8_t val)

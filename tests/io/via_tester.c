@@ -53,7 +53,7 @@ void test_init_bus(void)
 
     TEST_ASSERT_NOT_NULL(via);
 
-    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000));
+    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000, false));
 }
 
 void test_callback(void)

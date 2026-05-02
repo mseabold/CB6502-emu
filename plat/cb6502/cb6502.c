@@ -154,7 +154,7 @@ static bool cb6502_via_init(void)
     decoder.type = BUSDECODE_RANGE;
     decoder.value.range.addr_start = VIA_BASE;
     decoder.value.range.addr_end = VIA_BASE + VIA_SIZE - 1;
-    via_register(cb6502_cxt.via, cb6502_cxt.emulator, &decoder, VIA_BASE);
+    via_register(cb6502_cxt.via, cb6502_cxt.emulator, &decoder, VIA_BASE, false);
 
     return true;
 }

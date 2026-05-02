@@ -53,7 +53,7 @@ typedef void (*via_event_callback_t)(via_t via, const via_event_data_t *event, v
 
 via_t via_init(void);
 void via_cleanup(via_t handle);
-bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base);
+bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base, bool irq);
 void via_write(via_t handle, uint8_t reg, uint8_t val);
 uint8_t via_read(via_t handle, uint8_t reg);
 
