@@ -162,6 +162,22 @@ void test_port_latching(void)
     TEST_ASSERT_EQUAL_UINT8(0x55, via_read(via, 0));
 }
 
+void test_ier(void)
+{
+    via = via_init();
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_EQUAL_UINT8(0, via_read(via, 0xe));
+    via_write(via, 0xe, 0x91);
+    TEST_ASSERT_EQUAL_UINT8(0x11, via_read(via, 0xe));
+    via_write(via, 0xe, 0xff);
+    TEST_ASSERT_EQUAL_UINT8(0x7f, via_read(via, 0xe));
+    via_write(via, 0xe, 0x11);
+    TEST_ASSERT_EQUAL_UINT8(0x6e, via_read(via, 0xe));
+    via_write(via, 0xe, 0x7f);
+    TEST_ASSERT_EQUAL_UINT8(0x0, via_read(via, 0xe));
+}
+
 void setUp(void)
 {
 }
@@ -190,6 +206,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_callback);
     RUN_TEST(test_port_data);
     RUN_TEST(test_port_latching);
+    RUN_TEST(test_ier);
 
     return UNITY_END();
 }

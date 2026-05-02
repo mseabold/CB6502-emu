@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,6 +93,8 @@ struct via_s
 
     acr_t acr;
     pcr_t pcr;
+
+    uint8_t ier;
 
     bus_cb_handle_t bus_handle;
     bus_signal_voter_t voter;
@@ -334,6 +337,15 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
         case PCR:
             handle->pcr.val = val;
             break;
+        case IER:
+            if(val & 0x80)
+            {
+                handle->ier |= (val & 0x7f);
+            }
+            else
+            {
+                handle->ier &= ~(val & 0x7f);
+            }
     }
 
     if(dispatch)
@@ -368,6 +380,8 @@ uint8_t via_read(via_t handle, uint8_t reg)
             return handle->acr.val;
         case PCR:
             return handle->pcr.val;
+        case IER:
+            return handle->ier;
     }
     return 0;
 }
