@@ -95,6 +95,7 @@ struct via_s
     pcr_t pcr;
 
     uint8_t ier;
+    uint8_t ifr;
 
     bus_cb_handle_t bus_handle;
     bus_signal_voter_t voter;
@@ -207,6 +208,42 @@ static void via_handle_c1_edge(via_t handle, bool porta)
         port->ir = port->pin_in;
     }
 
+}
+
+static void via_set_ifr(via_t handle, uint8_t bits)
+{
+    uint8_t cur_ifr7;
+    uint8_t new_bits;
+
+    if(bits == 0)
+    {
+        return;
+    }
+
+    cur_ifr7 = handle->ifr & 0x80;
+    handle->ifr |= bits | 0x80;
+
+    if((cur_ifr7 == 0) && (handle->voter != BUS_SIGNAL_INVALID_VOTER))
+    {
+        emu_bus_sig_vote(handle->emu, handle->voter, BUS_SIG_IRQ, true);
+    }
+}
+
+static void via_clear_ifr(via_t handle, uint8_t bits)
+{
+    bool cur_voted = handle->ifr != 0;
+
+    handle->ifr &= ~(bits & 0x7f);
+
+    if((handle->ifr & 0x7f) == 0)
+    {
+        handle->ifr = 0;
+
+        if((cur_voted) && (handle->voter != BUS_SIGNAL_INVALID_VOTER))
+        {
+            emu_bus_sig_vote(handle->emu, handle->voter, BUS_SIG_IRQ, false);
+        }
+    }
 }
 
 via_t via_init(void)
@@ -346,6 +383,10 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             {
                 handle->ier &= ~(val & 0x7f);
             }
+            break;
+        case IFR:
+            via_clear_ifr(handle, val & 0x7f);
+            break;
     }
 
     if(dispatch)
@@ -382,6 +423,8 @@ uint8_t via_read(via_t handle, uint8_t reg)
             return handle->pcr.val;
         case IER:
             return handle->ier;
+        case IFR:
+            return handle->ifr;
     }
     return 0;
 }
