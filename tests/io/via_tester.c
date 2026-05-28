@@ -4,6 +4,7 @@
 #include <unity_internals.h>
 #include "emulator.h"
 #include "via.h"
+#include "emu_priv_types.h"
 
 static cbemu_t emu;
 static via_t via;
@@ -194,6 +195,41 @@ void test_ier(void)
     TEST_ASSERT_EQUAL_UINT8(0x0, via_read(via, 0xe));
 }
 
+void test_irq_signal(void)
+{
+    bus_decode_params_t decoder;
+
+    emu = emu_init(&config);
+
+    TEST_ASSERT_NOT_NULL(emu);
+
+    decoder.type = BUSDECODE_RANGE;
+    decoder.value.range.addr_start = 0x1000;
+    decoder.value.range.addr_end = 0x100F;
+
+    via = via_init();
+
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000, true));
+
+    /* Setup latching on rising edge for each port. */
+    via_write(via, 0x0C, 0x11);
+    via_write(via, 0x0B, 0x3);
+
+    /* Trigger a latch. */
+    via_write_ctrl(via, VIA_CA1, true);
+
+    /* Check that the IRQ signal is now voted on the bus. */
+    TEST_ASSERT_GREATER_THAN(0, emu->bus.sigvotes.irq);
+
+    /* Read the port to clear the IFR. */
+    via_read(via, 1);
+
+    /* Test the IRQ vote was cleared on IFR clear. */
+    TEST_ASSERT_EQUAL(0, emu->bus.sigvotes.irq);
+}
+
 void setUp(void)
 {
 }
@@ -223,6 +259,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_port_data);
     RUN_TEST(test_port_latching);
     RUN_TEST(test_ier);
+    RUN_TEST(test_irq_signal);
 
     return UNITY_END();
 }
