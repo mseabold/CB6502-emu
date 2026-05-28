@@ -16,8 +16,12 @@
  *
  *  HW1) CA1 can be used for handshaking and latching. Hwo does PCR affect this? I believe PCR
  *       controls the edfe of IRA latching, but does it affect DATA_TAKEN for handshaking?
+ *
  *  HW2) Previous testing indicating changing DDR with latching enabled trigger in IR latch.
  *       Does this apply to pins already configured as inputs?
+ *
+ *  HW3) Does a CA1/CB1 configured edge still trigger CA1/CB1 IFR if latching is disabled?
+ *       Similarly, does a read of PORTA/BORTB always clear this regardless of latch setting?
  */
 
 #define DATAB 0x00
@@ -37,6 +41,14 @@
 #define IER   0x0E
 #define DA2   0x0F
 #define REG_MAX DA2
+
+#define IFR_CA2 0x01
+#define IFR_CA1 0x02
+#define IFR_SR  0x04
+#define IFR_CB2 0x08
+#define IFR_CB1 0x10
+#define IFR_T2  0x20
+#define IFR_T1  0x40
 
 #define MERGE_BITS(_val1, _val2, _val1_mask) (((_val1) & (_val1_mask)) | ((_val2) & (~_val1_mask)))
 
@@ -193,23 +205,6 @@ static bool via_ddr_write(via_t handle, via_port_state_t *port, uint8_t val)
     return processed;
 }
 
-static void via_handle_c1_edge(via_t handle, bool porta)
-{
-    via_port_state_t *port = porta ? &handle->porta : &handle->portb;
-    bool latch = porta ? handle->acr.bits.pa_latch : handle->acr.bits.pb_latch;
-    uint8_t ca_ctrl = porta ? handle->pcr.bits.ca1_ctrl : handle->pcr.bits.cb1_ctrl;
-    bool posedge = ca_ctrl != 0;
-
-    /* Check for a latch condition. We know if we're here that an edge occurred,
-     * so check the newly updated state to see if it matches the configured edge. */
-    if((latch) && (port->c1_in == posedge))
-    {
-        /* Latch the current pin state into ir for inputs. */
-        port->ir = port->pin_in;
-    }
-
-}
-
 static void via_set_ifr(via_t handle, uint8_t bits)
 {
     uint8_t cur_ifr7;
@@ -244,6 +239,26 @@ static void via_clear_ifr(via_t handle, uint8_t bits)
             emu_bus_sig_vote(handle->emu, handle->voter, BUS_SIG_IRQ, false);
         }
     }
+}
+
+static void via_handle_c1_edge(via_t handle, bool porta)
+{
+    via_port_state_t *port = porta ? &handle->porta : &handle->portb;
+    bool latch = porta ? handle->acr.bits.pa_latch : handle->acr.bits.pb_latch;
+    uint8_t ca_ctrl = porta ? handle->pcr.bits.ca1_ctrl : handle->pcr.bits.cb1_ctrl;
+    bool posedge = ca_ctrl != 0;
+
+    /* Check for a latch condition. We know if we're here that an edge occurred,
+     * so check the newly updated state to see if it matches the configured edge. */
+    if((latch) && (port->c1_in == posedge))
+    {
+        /* Latch the current pin state into ir for inputs. */
+        port->ir = port->pin_in;
+
+        /* TODO: HW3 */
+        via_set_ifr(handle, porta ? IFR_CA1 : IFR_CB1);
+    }
+
 }
 
 via_t via_init(void)
@@ -351,6 +366,7 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->porta.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTA;
+                via_clear_ifr(handle, IFR_CA1);
             }
             break;
         case DDRB:
@@ -366,6 +382,7 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->portb.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTB;
+                via_clear_ifr(handle, IFR_CB1);
             }
             break;
         case ACR:
@@ -411,11 +428,14 @@ uint8_t via_read(via_t handle, uint8_t reg)
             return handle->portb.ddr;
 
         case DATAA:
+            via_clear_ifr(handle, IFR_CA1);
+
             /* In reality, PORTA is a bit special in that output pins always read back
              * the physical pin state rather than the current output register state. In
              * practice, this is difficult/not very meaningful to emulate, so we won't. */
             return MERGE_BITS(handle->porta.or, handle->porta.ir, handle->porta.ddr);
         case DATAB:
+            via_clear_ifr(handle, IFR_CB1);
             return MERGE_BITS(handle->portb.or, handle->portb.ir, handle->portb.ddr);
         case ACR:
             return handle->acr.val;

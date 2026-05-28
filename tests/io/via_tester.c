@@ -155,11 +155,27 @@ void test_port_latching(void)
 
     /* Latch and check PORTA */
     via_write_ctrl(via, VIA_CA1, true);
+
+    /* Ensure the latch triggered IFR bit. */
+    TEST_ASSERT_BITS_HIGH(0x82, via_read(via, 0xD));
+
+    /* Ensure the latched value is taken correctly. */
     TEST_ASSERT_EQUAL_UINT8(0x55, via_read(via, 1));
+
+    /* Ensure read back the latched value cleared the IFR bit. */
+    TEST_ASSERT_BITS_LOW(0x02, via_read(via, 0xD));
 
     /* Latch and check VIA_PORTB */
     via_write_ctrl(via, VIA_CB1, true);
+
+    /* Ensure the latch triggered IFR bit. */
+    TEST_ASSERT_BITS_HIGH(0x90, via_read(via, 0xD));
+
+    /* Ensure the latched value is taken correctly. */
     TEST_ASSERT_EQUAL_UINT8(0x55, via_read(via, 0));
+
+    /* Ensure read back the latched value cleared the IFR bit. */
+    TEST_ASSERT_BITS_LOW(0x10, via_read(via, 0xD));
 }
 
 void test_ier(void)
