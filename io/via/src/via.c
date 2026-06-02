@@ -76,6 +76,18 @@ typedef struct
     uint8_t cb2_ctrl : 3;
 } pcr_bits_t;
 
+#define VIA_C1_CTRL_NEG_EDGE   0x00
+#define VIA_C1_CTRL_POS_EDGE   0x01
+
+#define VIA_C2_CTRL_INPUT_NEG_EDGE      0x00
+#define VIA_C2_CTRL_INPUT_IND_NEG_EDGE  0x01
+#define VIA_C2_CTRL_INPUT_POS_EDGE      0x02
+#define VIA_C2_CTRL_INPUT_IND_POS_EDGE  0x03
+#define VIA_C2_CTRL_INPUT_HAND_OUT      0x04
+#define VIA_C2_CTRL_INPUT_PULSE_OUT     0x05
+#define VIA_C2_CTRL_INPUT_OUTPUT_LOW    0x06
+#define VIA_C2_CTRL_INPUT_OUTPUT_HIGH   0x07
+
 typedef union
 {
     uint8_t val;
@@ -175,6 +187,13 @@ static void via_make_callbacks(via_t handle, const via_event_data_t *event)
 
         info->callback(handle, event, info->userdata);
     }
+}
+
+static bool via_is_independent_int(via_t handle, bool porta)
+{
+    uint8_t c2_ctrl = porta ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
+
+    return ((c2_ctrl == VIA_C2_CTRL_INPUT_IND_NEG_EDGE) || (c2_ctrl == VIA_C2_CTRL_INPUT_IND_POS_EDGE));
 }
 
 static bool via_ddr_write(via_t handle, via_port_state_t *port, uint8_t val)
@@ -340,6 +359,7 @@ bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *de
 
 void via_write(via_t handle, uint8_t reg, uint8_t val)
 {
+    uint8_t ifr_bits;
     uint8_t old_val;
     uint8_t bits_to_latch;
     bool dispatch = false;
@@ -366,7 +386,10 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->porta.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTA;
-                via_clear_ifr(handle, IFR_CA1);
+
+                ifr_bits = IFR_CA1;
+                ifr_bits |= via_is_independent_int(handle, true) ? IFR_CA2 : 0;
+                via_clear_ifr(handle, ifr_bits);
             }
             break;
         case DDRB:
@@ -382,7 +405,10 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->portb.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTB;
-                via_clear_ifr(handle, IFR_CB1);
+
+                ifr_bits = IFR_CB1;
+                ifr_bits |= via_is_independent_int(handle, false) ? IFR_CB2 : 0;
+                via_clear_ifr(handle, ifr_bits);
             }
             break;
         case ACR:
