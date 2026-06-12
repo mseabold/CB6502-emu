@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "acia.h"
+#include "clock.h"
 #include "log.h"
 
 #define ACIA_RS_TX_DATA 0x00
@@ -163,7 +164,7 @@ static uint8_t acia_bus_read_cb(uint16_t addr, bus_flags_t flags, void *userdata
     return acia_read(handle, reg);
 }
 
-static void acia_tick_cb(clk_t clock, void *userdata)
+static void acia_tick_cb(clk_t clock, clock_edge_t edge, void *userdata)
 {
     acia_tick((acia_t)userdata);
 }

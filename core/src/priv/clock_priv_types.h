@@ -11,6 +11,7 @@ typedef struct
 {
     clock_tick_cb_t callback;   /**< Callback function */
     void *userdata;             /**< App specific user data */
+    clock_edge_t edges;         /**< Clock edges registered for this callback. */
     listnode_t node;            /**< List entry node */
 } clk_cb_entry_t;
 
@@ -21,7 +22,8 @@ struct clk_s
 {
     clk_freq_t freq;            /**< Frequency of the clock */
     clk_period_t period;        /**< Period of the clock (in ns) */
-    clk_period_t ticks;         /**< Remaining ns of the clock before it ticks */
+    clk_period_t ticks;         /**< Remaining ns of the clock phase before it ticks */
+    bool cur_phase;             /**< Indicates whether the next edge is inactive (false) or active (true). */
     listnode_t callbacks;       /**< List head for registered callbacks. */
     listnode_t node;            /**< List entry node */
 };

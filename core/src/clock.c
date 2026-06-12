@@ -46,7 +46,8 @@ static clk_t clock_alloc_clk(const clock_config_t *config)
             clk->period = (HZ_NS_CONVERT + (clk->freq >> 1)) / clk->freq;
         }
 
-        clk->ticks = clk->period;
+        /* Start ticks out for the inactive phase, always rounding down. */
+        clk->ticks = clk->period / 2;
         list_init(&clk->callbacks);
     }
 
@@ -88,16 +89,24 @@ static void clock_list_free_cb(listnode_t *node, void *param)
  * and calling each of them.
  *
  * @param[in] clk   Clock to make tick callbacks for
+ * @param[in] active_edge Indicates whether this is the inactive or active clock edge.
  */
-static void clock_make_callbacks(clk_t clk)
+static void clock_make_callbacks(clk_t clk, bool active_edge)
 {
     listnode_t *node;
     clk_cb_entry_t *entry;
+    clock_edge_t edge;
+
+    edge = active_edge ? CLOCK_NEGEDGE : CLOCK_POSEDGE;
 
     list_iterate(&clk->callbacks, node)
     {
         entry = list_container(node, clk_cb_entry_t, node);
-        entry->callback(clk, entry->userdata);
+
+        if(entry->edges & edge)
+        {
+            entry->callback(clk, edge, entry->userdata);
+        }
     }
 }
 
@@ -161,13 +170,8 @@ clk_t clock_get_core_clk(cbemu_t emu)
     return NULL;
 }
 
-/**
- * Tick the main bus clock. This will update and tick all other applicable clocks
- * based on relative frequency
- *
- * @param[in] emu   The main emulator context to tick.
- */
-void clock_main_tick(cbemu_t emu)
+/* TODO: Should this be externalized? */
+static void clock_main_half_tick(cbemu_t emu)
 {
     clk_t headClk;
     clk_period_t remainingTicks;
@@ -183,13 +187,25 @@ void clock_main_tick(cbemu_t emu)
     }
 
     cxt = &emu->clk;
-    remainingTicks = cxt->mainClk->period;
+
+    if(cxt->mainClk->cur_phase)
+    {
+        remainingTicks = cxt->mainClk->period/2;
+    }
+    else
+    {
+        remainingTicks = cxt->mainClk->period - (cxt->mainClk->period / 2);
+    }
 
     if(list_empty(&cxt->clks))
     {
         /* Only the main clock exists, so just tick it. */
-        cxt->main_hlr(cxt->mainClk, emu);
-        clock_make_callbacks(cxt->mainClk);
+        if(cxt->mainClk->cur_phase)
+        {
+            cxt->main_hlr(cxt->mainClk, CLOCK_NEGEDGE, emu);
+        }
+        clock_make_callbacks(cxt->mainClk, cxt->mainClk->cur_phase);
+        cxt->mainClk->cur_phase = !cxt->mainClk->cur_phase;
     }
     else
     {
@@ -209,8 +225,20 @@ void clock_main_tick(cbemu_t emu)
                  * later as we consume the time for each clock. */
                 ticksToConsume = headClk->ticks;
                 list_remove(&headClk->node);
-                headClk->ticks = headClk->period;
-                clock_make_callbacks(headClk);
+
+                if(headClk->cur_phase)
+                {
+                    /* Always round down for inactive phase. */
+                    headClk->ticks = headClk->period / 2;
+                }
+                else
+                {
+                    /* Always round up/complete the cycle in active phase. */
+                    headClk->ticks = headClk->period - (headClk->period / 2);
+                }
+
+                clock_make_callbacks(headClk, headClk->cur_phase);
+                headClk->cur_phase = !headClk->cur_phase;
             }
             else
             {
@@ -224,11 +252,15 @@ void clock_main_tick(cbemu_t emu)
             if((ticksToConsume == remainingTicks) && (!mainTicked))
             {
                 /* First, allow the ineternal emulator core to process this main clock tick. */
-                cxt->main_hlr(cxt->mainClk, emu);
+                if(cxt->mainClk->cur_phase)
+                {
+                    cxt->main_hlr(cxt->mainClk, CLOCK_NEGEDGE, emu);
+                }
 
                 /* Now let the rest of the world handle the main clock tick. */
-                clock_make_callbacks(cxt->mainClk);
+                clock_make_callbacks(cxt->mainClk, cxt->mainClk->cur_phase);
                 mainTicked = true;
+                cxt->mainClk->cur_phase = !cxt->mainClk->cur_phase;
             }
 
             /* Walk the list of clocks */
@@ -269,6 +301,18 @@ void clock_main_tick(cbemu_t emu)
             remainingTicks -= ticksToConsume;
         }
     }
+}
+
+/**
+ * Tick the main bus clock. This will update and tick all other applicable clocks
+ * based on relative frequency
+ *
+ * @param[in] emu   The main emulator context to tick.
+ */
+void clock_main_tick(cbemu_t emu)
+{
+    clock_main_half_tick(emu);
+    clock_main_half_tick(emu);
 }
 
 /**
@@ -358,6 +402,39 @@ clock_cb_handle_t clock_register_tick(clk_t clk, clock_tick_cb_t callback, void 
     {
         entry->callback = callback;
         entry->userdata = userdata;
+        entry->edges = CLOCK_NEGEDGE;
+        list_add_tail(&clk->callbacks, &entry->node);
+    }
+
+    return entry;
+}
+
+/**
+ * Registers a tick handler for a given clock
+ *
+ * @param[in] clk       The clock for tick registration
+ * @param[in] edges     Bitmask of the clock edges that should trigger this callback.
+ * @param[in] callback  The tick handler to be called on tick
+ * @param[in] userdata  App specific data to be passed on each callback
+ *
+ * @return A handle for the registered callback or NULL on error
+ */
+clock_cb_handle_t clock_register_tick_edges(clk_t clk, clock_tick_cb_t callback, clock_edge_t edges, void *userdata)
+{
+    clk_cb_entry_t *entry;
+
+    if((clk == NULL) || (callback == NULL))
+    {
+        return NULL;
+    }
+
+    entry = malloc(sizeof(clk_cb_entry_t));
+
+    if(entry != NULL)
+    {
+        entry->callback = callback;
+        entry->userdata = userdata;
+        entry->edges = edges;
         list_add_tail(&clk->callbacks, &entry->node);
     }
 

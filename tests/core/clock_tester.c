@@ -10,17 +10,17 @@
 
 struct cbemu_s emu;
 
-static void bool_tick_cb(clk_t clk, void *userdata)
+static void bool_tick_cb(clk_t clk, clock_edge_t edge, void *userdata)
 {
     *(bool *)userdata = true;
 }
 
-static void counter_tick_cb(clk_t clk, void *userdata)
+static void counter_tick_cb(clk_t clk, clock_edge_t edge, void *userdata)
 {
     *(uint32_t *)userdata += 1;
 }
 
-static void main_tick_handler(clk_t clk, void *userdata)
+static void main_tick_handler(clk_t clk, clock_edge_t edge, void *userdata)
 {
 }
 

@@ -22,6 +22,13 @@ typedef enum
     CLOCK_PERIOD /**< Timing for a clock is fiven by its period. */
 } clock_timing_type_t;
 
+/** Defines the edge types for a clock. */
+typedef enum
+{
+    CLOCK_POSEDGE = 0x01,
+    CLOCK_NEGEDGE = 0x02
+} clock_edge_t;
+
 /**
  * Clock frequency. This is represented in hertz.
  *
@@ -65,9 +72,10 @@ typedef void *clock_cb_handle_t;
  * Callback prototype for handling ticks of a specified clock
  *
  * @param[in] clk       The clock that ticked.
+ * @param[in] edge      Clock edge that triggered this callback.
  * @param[in] userdata  App-specific userdata for the registered callback
  */
-typedef void (*clock_tick_cb_t)(clk_t clk, void *userdata);
+typedef void (*clock_tick_cb_t)(clk_t clk, clock_edge_t edge, void *userdata);
 
 /**
  * Adds a clock to the core emulator.
@@ -97,7 +105,8 @@ clk_t clock_get_core_clk(cbemu_t);
 void clock_remove(cbemu_t emu, clk_t clk);
 
 /**
- * Registers a tick handler for a given clock
+ * Registers a tick handler for a given clock. Note this alwasys receives the negative
+ * edge of the clock.
  *
  * @param[in] clk       The clock for tick registration
  * @param[in] callback  The tick handler to be called on tick
@@ -106,6 +115,18 @@ void clock_remove(cbemu_t emu, clk_t clk);
  * @return A handle for the registered callback or NULL on error
  */
 clock_cb_handle_t clock_register_tick(clk_t clk, clock_tick_cb_t callback, void *userdata);
+
+/**
+ * Registers a tick handler for a given clock
+ *
+ * @param[in] clk       The clock for tick registration
+ * @param[in] edges     Bitmask of the clock edges that should trigger this callback.
+ * @param[in] callback  The tick handler to be called on tick
+ * @param[in] userdata  App specific data to be passed on each callback
+ *
+ * @return A handle for the registered callback or NULL on error
+ */
+clock_cb_handle_t clock_register_tick_edges(clk_t clk, clock_tick_cb_t callback, clock_edge_t edges, void *userdata);
 
 /**
  * Un-registers a previously registered tack handler for a clock

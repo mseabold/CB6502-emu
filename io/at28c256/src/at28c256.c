@@ -2,6 +2,7 @@
  * (c) 2022 Matt Seabold
  */
 #include "at28c256.h"
+#include "clock.h"
 #include "log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -133,7 +134,7 @@ static void handle_page_write(at28c256_t handle, uint16_t addr, uint8_t val)
     }
 }
 
-static void at28c256_tick_cb(clk_t clk, void *userdata)
+static void at28c256_tick_cb(clk_t clk, clock_edge_t edge, void *userdata)
 {
     at28c256_t handle = (at28c256_t)userdata;
     clk_period_t period;

@@ -2,12 +2,13 @@
 #include <string.h>
 
 #include "emulator.h"
+#include "clock.h"
 #include "emu_priv_types.h"
 #include "bus_priv.h"
 #include "clock_priv.h"
 #include "cpu_priv.h"
 
-static void main_clock_handler(clk_t clk, void *userdata)
+static void main_clock_handler(clk_t clk, clock_edge_t edge, void *userdata)
 {
     cbemu_t emu = (cbemu_t)userdata;
 
