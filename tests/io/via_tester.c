@@ -33,7 +33,7 @@ static void via_record_evt_cb(via_t via, const via_event_data_t *event, void *us
 
 void test_init_direct(void)
 {
-    via = via_init();
+    via = via_init(NULL);
 
     TEST_ASSERT_NOT_NULL(via);
 }
@@ -50,11 +50,11 @@ void test_init_bus(void)
     decoder.value.range.addr_start = 0x1000;
     decoder.value.range.addr_end = 0x100F;
 
-    via = via_init();
+    via = via_init(emu);
 
     TEST_ASSERT_NOT_NULL(via);
 
-    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000, false));
+    TEST_ASSERT_TRUE(via_register(via, &decoder, 0x1000, false));
 }
 
 void test_callback(void)
@@ -63,7 +63,7 @@ void test_callback(void)
 
     events.numEvents = 0;
 
-    via = via_init();
+    via = via_init(NULL);
 
     TEST_ASSERT_NOT_NULL(via);
 
@@ -91,7 +91,7 @@ void test_callback(void)
 
 void test_port_data(void)
 {
-    via = via_init();
+    via = via_init(NULL);
 
     TEST_ASSERT_NOT_NULL(via);
 
@@ -126,7 +126,7 @@ void test_port_data(void)
 
 void test_port_latching(void)
 {
-    via = via_init();
+    via = via_init(NULL);
 
     TEST_ASSERT_NOT_NULL(via);
 
@@ -181,7 +181,7 @@ void test_port_latching(void)
 
 void test_ier(void)
 {
-    via = via_init();
+    via = via_init(NULL);
     TEST_ASSERT_NOT_NULL(via);
 
     TEST_ASSERT_EQUAL_UINT8(0, via_read(via, 0xe));
@@ -207,11 +207,11 @@ void test_irq_signal(void)
     decoder.value.range.addr_start = 0x1000;
     decoder.value.range.addr_end = 0x100F;
 
-    via = via_init();
+    via = via_init(emu);
 
     TEST_ASSERT_NOT_NULL(via);
 
-    TEST_ASSERT_TRUE(via_register(via, emu, &decoder, 0x1000, true));
+    TEST_ASSERT_TRUE(via_register(via, &decoder, 0x1000, true));
 
     /* Setup latching on rising edge for each port. */
     via_write(via, 0x0C, 0x11);
@@ -228,6 +228,346 @@ void test_irq_signal(void)
 
     /* Test the IRQ vote was cleared on IFR clear. */
     TEST_ASSERT_EQUAL(0, emu->bus.sigvotes.irq);
+}
+
+void test_ca2_output(void)
+{
+    via_test_events_t events;
+    via_cb_handle_t cb;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+
+    TEST_ASSERT_NOT_NULL(via);
+
+    cb = via_register_callback(via, via_record_evt_cb, &events);
+
+    TEST_ASSERT_NOT_NULL(cb);
+
+    /* Make sure state as input pins starts low. */
+    via_write_ctrl(via, VIA_CA2, false);
+
+    /* Make sure in default configuration pins read back input state. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
+
+    /* Write the pin state as force output high. */
+    via_write(via, 0xC, 0xE);
+
+    /* Make sure we got a callback that the pin state changed. */
+    TEST_ASSERT_EQUAL_UINT(1, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[0].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[0].data.port);
+
+    /* Make sure the pin now reads back as output. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CA2));
+
+    /* Write the pin state as force output low. */
+    via_write(via, 0xC, 0xC);
+
+    /* Make sure we got a callback that the pin state changed. */
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
+}
+
+void test_cb2_output(void)
+{
+    via_test_events_t events;
+    via_cb_handle_t cb;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+
+    TEST_ASSERT_NOT_NULL(via);
+
+    cb = via_register_callback(via, via_record_evt_cb, &events);
+
+    TEST_ASSERT_NOT_NULL(cb);
+
+    /* Make sure state as input pins starts low. */
+    via_write_ctrl(via, VIA_CB2, false);
+
+    /* Make sure in default configuration pins read back input state. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CB2));
+
+    /* Write the pin state as force output high. */
+    via_write(via, 0xC, 0xE0);
+
+    /* Make sure we got a callback that the pin state changed. */
+    TEST_ASSERT_EQUAL_UINT(1, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[0].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[0].data.port);
+
+    /* Make sure the pin now reads back as output. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CB2));
+
+    /* Write the pin state as force output low. */
+    via_write(via, 0xC, 0xC0);
+
+    /* Make sure we got a callback that the pin state changed. */
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CB2));
+}
+
+void test_porta_read_hs(void)
+{
+    via_test_events_t events;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_NOT_NULL(via_register_callback(via, via_record_evt_cb, &events));
+
+    /* Drive CA1 is that is default inactive state. */
+    via_write_ctrl(via, VIA_CA1, true);
+
+    /* Put CA2 in Handshake Output. */
+    via_write(via, 0xC, 0x8);
+
+    /* CA2 / Data Ready should be high. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CA2));
+
+    /* Read PORTA, which should trigger Data Taken. */
+    via_read(via, 0x01);
+
+    /* Make sure we got a callback that the pin state changed. Note that
+     * writing PCR triggers the callback as CA2 goes high for idle, so
+     * there should now be *2* events. */
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output low. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
+
+    /* Now trigger current CA1 active edge (negative) as Data Taken. */
+    via_write_ctrl(via, VIA_CA1, false);
+
+    /* IFR should have been triggered now and Data Ready should have gone back high. */
+    TEST_ASSERT_BIT_HIGH(1, via_read(via, 0xD));
+
+    TEST_ASSERT_EQUAL_UINT(3, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[2].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[2].data.port);
+
+    /* Make sure the pin now reads back as output high. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CA2));
+}
+
+void test_porta_read_pulse(void)
+{
+    via_test_events_t events;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_NOT_NULL(via_register_callback(via, via_record_evt_cb, &events));
+
+    /* Drive CA1 is that is default inactive state. */
+    via_write_ctrl(via, VIA_CA1, true);
+
+    /* Put CA2 in Handshake Pulse. */
+    via_write(via, 0xC, 0xA);
+
+    /* CA2 / Data Ready should be high. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CA2));
+
+    /* Read PORTA, which should trigger Data Taken. */
+    via_read(via, 0x01);
+
+    /* Make sure we got a callback that the pin state changed. Note that
+     * writing PCR triggers the callback as CA2 goes high for idle, so
+     * there should now be *2* events. */
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output low. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
+
+    /* Tick the main clock once. */
+    emu_tick(emu);
+
+    /* Clock single should have reset the pulse. */
+    TEST_ASSERT_EQUAL_UINT(3, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[2].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[2].data.port);
+
+    /* Make sure the pin now reads back as output high. */
+    TEST_ASSERT(via_read_ctrl(via, VIA_CA2));
+}
+
+static void test_write_hs(bool porta)
+{
+    via_test_events_t events;
+    via_ctrl_pin_t c1_pin = porta ? VIA_CA1 : VIA_CB1;
+    via_ctrl_pin_t c2_pin = porta ? VIA_CA2 : VIA_CB2;
+    uint8_t pcr_val = porta ? 0x08 : 0x80;
+    uint8_t ifr_bit = porta ? 1 : 4;
+    uint8_t port_reg = porta ? 0x1 : 0x0;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_NOT_NULL(via_register_callback(via, via_record_evt_cb, &events));
+
+    /* Drive C1 is that is default inactive state. */
+    via_write_ctrl(via, c1_pin, true);
+
+    /* Put C2 in Handshake Output. */
+    via_write(via, 0xC, pcr_val);
+
+    /* Put events back to 0 for clarity. */
+    events.numEvents = 0;
+
+    /* C2 / Data Ready should be high. */
+    TEST_ASSERT(via_read_ctrl(via, c2_pin));
+
+    /* Write PORTA, which should start the handsake trigger. */
+    /* NOTE: We are not configured DDR (See VIA note HW7) */
+    via_write(via, port_reg, 0);
+
+    /* Handshake should not occur until rising edge of next main clock. */
+    TEST_ASSERT_EQUAL_UINT(0, events.numEvents);
+
+    /* Tick the clock
+     * TODO: Perhaps this should force only the rising edge phase. */
+    emu_tick(emu);
+
+    /* Make sure we got a callback that the pin state changed now that
+     * the rising edge has triggered the handsake. */
+    TEST_ASSERT_EQUAL_UINT(1, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[0].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[0].data.port);
+
+    /* Make sure the pin now reads back as output low. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, c2_pin));
+
+    /* Now trigger current CA1 active edge (negative) as Data Taken. */
+    via_write_ctrl(via, c1_pin, false);
+
+    /* IFR should have been triggered now and Data Ready should have gone back high. */
+    TEST_ASSERT_BIT_HIGH(ifr_bit, via_read(via, 0xD));
+
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output high. */
+    TEST_ASSERT(via_read_ctrl(via, c2_pin));
+}
+
+static void test_write_hs_pulse(bool porta)
+{
+    via_test_events_t events;
+    via_ctrl_pin_t c1_pin = porta ? VIA_CA1 : VIA_CB1;
+    via_ctrl_pin_t c2_pin = porta ? VIA_CA2 : VIA_CB2;
+    uint8_t pcr_val = porta ? 0x0A : 0xA0;
+    uint8_t port_reg = porta ? 0x1 : 0x0;
+
+    memset(&events, 0, sizeof(events));
+
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    TEST_ASSERT_NOT_NULL(via_register_callback(via, via_record_evt_cb, &events));
+
+    /* Drive C1 is that is default inactive state. */
+    via_write_ctrl(via, c1_pin, true);
+
+    /* Put C2 in Handshake Output. */
+    via_write(via, 0xC, pcr_val);
+
+    /* Put events back to 0 for clarity. */
+    events.numEvents = 0;
+
+    /* C2 / Data Ready should be high. */
+    TEST_ASSERT(via_read_ctrl(via, c2_pin));
+
+    /* Write PORTA, which should start the handsake trigger. */
+    /* NOTE: We are not configured DDR (See VIA note HW7) */
+    via_write(via, port_reg, 0);
+
+    /* Handshake should not occur until rising edge of next main clock. */
+    TEST_ASSERT_EQUAL_UINT(0, events.numEvents);
+
+    /* Tick the clock
+     * TODO: Perhaps this should force only the rising edge phase. */
+    emu_tick(emu);
+
+    /* Make sure we got a callback that the pin state changed now that
+     * the rising edge has triggered the handsake. */
+    TEST_ASSERT_EQUAL_UINT(1, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[0].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[0].data.port);
+
+    /* Make sure the pin now reads back as output low. */
+    TEST_ASSERT_FALSE(via_read_ctrl(via, c2_pin));
+
+    /* Tick again to clear the pulse */
+    emu_tick(emu);
+
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+
+    /* Make sure the pin now reads back as output high. */
+    TEST_ASSERT(via_read_ctrl(via, c2_pin));
+}
+
+void test_porta_write_hs(void)
+{
+    test_write_hs(true);
+}
+
+void test_portb_write_hs(void)
+{
+    test_write_hs(false);
+}
+
+void test_porta_write_pulse(void)
+{
+    test_write_hs_pulse(true);
+}
+
+void test_portb_write_pulse(void)
+{
+    test_write_hs_pulse(true);
 }
 
 void setUp(void)
@@ -260,6 +600,14 @@ int main(int argc, char **argv)
     RUN_TEST(test_port_latching);
     RUN_TEST(test_ier);
     RUN_TEST(test_irq_signal);
+    RUN_TEST(test_ca2_output);
+    RUN_TEST(test_cb2_output);
+    RUN_TEST(test_porta_read_hs);
+    RUN_TEST(test_porta_read_pulse);
+    RUN_TEST(test_porta_write_hs);
+    RUN_TEST(test_portb_write_hs);
+    RUN_TEST(test_porta_write_pulse);
+    RUN_TEST(test_portb_write_pulse);
 
     return UNITY_END();
 }

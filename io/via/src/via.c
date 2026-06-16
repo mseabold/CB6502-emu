@@ -22,6 +22,23 @@
  *
  *  HW3) Does a CA1/CB1 configured edge still trigger CA1/CB1 IFR if latching is disabled?
  *       Similarly, does a read of PORTA/BORTB always clear this regardless of latch setting?
+ *
+ *  HW4) Does Read handshaking on PORTA occur on every IRA read regardless of DDRA/latching?
+ *       Does Write handshaking then also occur on every write? How do these two interplay?
+ *       Note, this is not a question on PORTB as it only supports Write handshaking
+ *
+ *  HW5) Are handshaking outputs inteernally used/consistent despite CX2 setting? I.e. does
+ *       reading/writing generate the signal internally, and then if CX2 setting changes while
+ *       signal is still pending, the signal is output as set? Or is it only set in that output mode?
+ *       Similarly, if the output is set and then CX2 control is disabled, is the output signal cleared
+ *       or does the output singal remain and will be applied again of CX2 is switched back?
+ *       For now, assuming the latter for ease of implementation as that the standard use case would
+ *       be to set up the mode prior to using it.
+ *
+ *  HW6) Does Read Handshaking require an initial Data Ready signal on CA1 to activate, or is
+ *       it triggered on every PORTA read?
+ *
+ *  HW7) Does DDR affect handshaking?
  */
 
 #define DATAB 0x00
@@ -83,10 +100,10 @@ typedef struct
 #define VIA_C2_CTRL_INPUT_IND_NEG_EDGE  0x01
 #define VIA_C2_CTRL_INPUT_POS_EDGE      0x02
 #define VIA_C2_CTRL_INPUT_IND_POS_EDGE  0x03
-#define VIA_C2_CTRL_INPUT_HAND_OUT      0x04
-#define VIA_C2_CTRL_INPUT_PULSE_OUT     0x05
-#define VIA_C2_CTRL_INPUT_OUTPUT_LOW    0x06
-#define VIA_C2_CTRL_INPUT_OUTPUT_HIGH   0x07
+#define VIA_C2_CTRL_OUTPUT_HANDSAKE     0x04
+#define VIA_C2_CTRL_OUTPUT_PULSE        0x05
+#define VIA_C2_CTRL_OUTPUT_LOW          0x06
+#define VIA_C2_CTRL_OUTPUT_HIGH         0x07
 
 typedef union
 {
@@ -108,6 +125,7 @@ typedef struct
     uint8_t pin_in;
     bool c1_in;
     bool c2_in;
+    bool c2_out;
 } via_port_state_t;
 
 struct via_s
@@ -117,10 +135,12 @@ struct via_s
 
     acr_t acr;
     pcr_t pcr;
-
     uint8_t ier;
     uint8_t ifr;
 
+    uint32_t flags;
+
+    clock_cb_handle_t clk_cb;
     bus_cb_handle_t bus_handle;
     bus_signal_voter_t voter;
     cbemu_t emu;
@@ -128,6 +148,16 @@ struct via_s
     uint16_t base;
     listnode_t callbacks;
 };
+
+#define VIA_FLAG_CA2_TRIG_PEND          0x0001
+#define VIA_FLAG_CA2_PULSE_PEND         0x0002
+#define VIA_FLAG_CA2_READ_PULSE_PEND    0x0004
+#define VIA_FLAG_CB2_TRIG_PEND          0x0008
+#define VIA_FLAG_CB2_PULSE_PEND         0x0010
+
+#define VIA_FLAGS_CA_SHAKE_PEND     (VIA_FLAG_CA2_TRIG_PEND | VIA_FLAG_CA2_PULSE_PEND | VIA_FLAG_CA2_READ_PULSE_PEND)
+#define VIA_FLAGS_CB_SHAKE_PEND     (VIA_FLAG_CB2_TRIG_PEND | VIA_FLAG_CB2_PULSE_PEND)
+#define VIA_FLAGS_HANDSHAKE_PEND    (VIA_FLAGS_CA_SHAKE_PEND | VIA_FLAGS_CB_SHAKE_PEND)
 
 static void via_bus_write_cb(uint16_t addr, uint8_t val, bus_flags_t flags, void *userdata)
 {
@@ -189,11 +219,18 @@ static void via_make_callbacks(via_t handle, const via_event_data_t *event)
     }
 }
 
-static bool via_is_independent_int(via_t handle, bool porta)
+static inline bool via_is_independent_int(via_t handle, bool porta)
 {
     uint8_t c2_ctrl = porta ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
 
     return ((c2_ctrl == VIA_C2_CTRL_INPUT_IND_NEG_EDGE) || (c2_ctrl == VIA_C2_CTRL_INPUT_IND_POS_EDGE));
+}
+
+static inline bool via_is_handshake_output(via_t handle, bool porta)
+{
+    uint8_t c2_ctrl = porta ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
+
+    return ((c2_ctrl == VIA_C2_CTRL_OUTPUT_HANDSAKE) || (c2_ctrl == VIA_C2_CTRL_OUTPUT_PULSE));
 }
 
 static bool via_ddr_write(via_t handle, via_port_state_t *port, uint8_t val)
@@ -260,27 +297,121 @@ static void via_clear_ifr(via_t handle, uint8_t bits)
     }
 }
 
+static void via_write_c2_state(via_t handle, bool porta, bool state)
+{
+    via_port_state_t *port = porta ? &handle->porta : &handle->portb;
+    uint8_t c2_ctrl = porta ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
+    via_event_data_t event;
+
+    if(state == port->c2_out)
+    {
+        /* Don't make any notifications if it didn't change. */
+        return;
+    }
+
+    port->c2_out = state;
+
+    /* If C2 is currently an output, trigger a callback. */
+    if(c2_ctrl >= VIA_C2_CTRL_OUTPUT_HANDSAKE)
+    {
+        event.type = VIA_EV_PORT_CHANGE;
+        event.data.port = VIA_CTRL;
+
+        via_make_callbacks(handle, &event);
+    }
+}
+
 static void via_handle_c1_edge(via_t handle, bool porta)
 {
     via_port_state_t *port = porta ? &handle->porta : &handle->portb;
     bool latch = porta ? handle->acr.bits.pa_latch : handle->acr.bits.pb_latch;
-    uint8_t ca_ctrl = porta ? handle->pcr.bits.ca1_ctrl : handle->pcr.bits.cb1_ctrl;
-    bool posedge = ca_ctrl != 0;
+    uint8_t c1_ctrl = porta ? handle->pcr.bits.ca1_ctrl : handle->pcr.bits.cb1_ctrl;
+    uint8_t c2_ctrl = porta ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
+    bool posedge = c1_ctrl != 0;
 
-    /* Check for a latch condition. We know if we're here that an edge occurred,
-     * so check the newly updated state to see if it matches the configured edge. */
-    if((latch) && (port->c1_in == posedge))
+    /* Check if the configured edge occured on CX1. We know *an* edge occurred, so
+     * we can just compare the current pin state here. */
+    if(port->c1_in == posedge)
     {
-        /* Latch the current pin state into ir for inputs. */
-        port->ir = port->pin_in;
+        /* Handle latching if enabled. */
+        if(latch)
+        {
+            /* Latch the current pin state into ir for inputs. */
+            port->ir = port->pin_in;
 
-        /* TODO: HW3 */
+        }
+
+        /* TODO: HW3: It's unclear when all this happens, but does need
+         * to happen for handshaking regardless of latch state it seems. */
         via_set_ifr(handle, porta ? IFR_CA1 : IFR_CB1);
+
+        /* If CA2 is currently in handshake mode, make sure we clear the Data Taken
+         * state now that new data is ready. */
+        if(c2_ctrl == VIA_C2_CTRL_OUTPUT_HANDSAKE)
+        {
+            via_write_c2_state(handle, porta, true);
+        }
     }
 
 }
 
-via_t via_init(void)
+static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
+{
+    via_t handle = (via_t)userdata;
+
+    if(handle == NULL)
+    {
+        return;
+    }
+
+    if(edge == CLOCK_POSEDGE)
+    {
+        if(handle->flags & VIA_FLAG_CA2_PULSE_PEND)
+        {
+            via_write_c2_state(handle, true, true);
+            handle->flags &= ~VIA_FLAG_CA2_PULSE_PEND;
+        }
+
+        if(handle->flags & VIA_FLAG_CB2_PULSE_PEND)
+        {
+            via_write_c2_state(handle, false, true);
+            handle->flags &= ~VIA_FLAG_CB2_PULSE_PEND;
+        }
+
+        if(handle->flags & VIA_FLAG_CA2_TRIG_PEND)
+        {
+            via_write_c2_state(handle, true, false);
+            handle->flags &= ~VIA_FLAG_CA2_TRIG_PEND;
+
+            if(handle->pcr.bits.ca2_ctrl == VIA_C2_CTRL_OUTPUT_PULSE)
+            {
+                handle->flags |= VIA_FLAG_CA2_PULSE_PEND;
+            }
+        }
+
+        if(handle->flags & VIA_FLAG_CB2_TRIG_PEND)
+        {
+            via_write_c2_state(handle, false, false);
+            handle->flags &= ~VIA_FLAG_CB2_TRIG_PEND;
+
+            if(handle->pcr.bits.cb2_ctrl == VIA_C2_CTRL_OUTPUT_PULSE)
+            {
+                handle->flags |= VIA_FLAG_CB2_PULSE_PEND;
+            }
+        }
+    }
+    else
+    {
+        /* Read handshake pulsing happens at negedge. */
+        if(handle->flags & VIA_FLAG_CA2_READ_PULSE_PEND)
+        {
+            via_write_c2_state(handle, true, true);
+            handle->flags &= VIA_FLAG_CA2_READ_PULSE_PEND;
+        }
+    }
+}
+
+via_t via_init(const cbemu_t emu)
 {
     via_t cxt;
 
@@ -292,6 +423,18 @@ via_t via_init(void)
     memset(cxt, 0, sizeof(struct via_s));
     list_init(&cxt->callbacks);
     cxt->voter = BUS_SIGNAL_INVALID_VOTER;
+
+    if(emu != NULL)
+    {
+        cxt->emu = emu;
+        cxt->clk_cb = clock_register_tick_edges(clock_get_core_clk(emu), via_clock_tick, (CLOCK_NEGEDGE | CLOCK_POSEDGE), cxt);
+
+        if(cxt->clk_cb == NULL)
+        {
+            free(cxt);
+            cxt = NULL;
+        }
+    }
 
     return cxt;
 }
@@ -315,20 +458,24 @@ void via_cleanup(via_t via)
 
     list_free_offset(&via->callbacks, via_callback_info_t, node);
 
+    if(via->clk_cb != NULL)
+    {
+        clock_unregister_tick(via->clk_cb);
+    }
+
     free(via);
 }
 
-bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base, bool irq)
+bool via_register(via_t handle, const bus_decode_params_t *decoder, uint16_t base, bool irq)
 {
     bool error = false;
 
-    if((handle == NULL) || (emu == NULL) || (decoder == NULL) || (handle->bus_handle != NULL) || (handle->voter != BUS_SIGNAL_INVALID_VOTER))
+    if((handle == NULL) || (handle->emu == NULL) || (decoder == NULL) || (handle->bus_handle != NULL) || (handle->voter != BUS_SIGNAL_INVALID_VOTER))
     {
         return false;
     }
 
-    handle->emu = emu;
-    handle->bus_handle = emu_bus_register(emu, decoder, &via_bus_handlers, handle);
+    handle->bus_handle = emu_bus_register(handle->emu, decoder, &via_bus_handlers, handle);
 
     if(handle->bus_handle != NULL)
     {
@@ -349,7 +496,7 @@ bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *de
 
             if(handle->bus_handle != NULL)
             {
-                emu_bus_unregister(emu, handle->bus_handle);
+                emu_bus_unregister(handle->emu, handle->bus_handle);
             }
         }
     }
@@ -386,10 +533,16 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->porta.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTA;
+            }
 
-                ifr_bits = IFR_CA1;
-                ifr_bits |= via_is_independent_int(handle, true) ? IFR_CA2 : 0;
-                via_clear_ifr(handle, ifr_bits);
+            ifr_bits = IFR_CA1;
+            ifr_bits |= via_is_independent_int(handle, true) ? IFR_CA2 : 0;
+            via_clear_ifr(handle, ifr_bits);
+
+            if(via_is_handshake_output(handle, true))
+            {
+                /* Trigger write handshake. */
+                handle->flags |= VIA_FLAG_CA2_TRIG_PEND;
             }
             break;
         case DDRB:
@@ -402,13 +555,19 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
         case DATAB:
             if(handle->portb.or != val)
             {
-                handle->portb.or = val;
                 dispatch = true;
                 event.data.port = VIA_PORTB;
+            }
 
-                ifr_bits = IFR_CB1;
-                ifr_bits |= via_is_independent_int(handle, false) ? IFR_CB2 : 0;
-                via_clear_ifr(handle, ifr_bits);
+            handle->portb.or = val;
+            ifr_bits = IFR_CB1;
+            ifr_bits |= via_is_independent_int(handle, false) ? IFR_CB2 : 0;
+            via_clear_ifr(handle, ifr_bits);
+
+            if(via_is_handshake_output(handle, false))
+            {
+                /* Trigger write handshake. */
+                handle->flags |= VIA_FLAG_CB2_TRIG_PEND;
             }
             break;
         case ACR:
@@ -416,6 +575,36 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             break;
         case PCR:
             handle->pcr.val = val;
+
+            switch(handle->pcr.bits.ca2_ctrl)
+            {
+                case VIA_C2_CTRL_OUTPUT_HANDSAKE:
+                case VIA_C2_CTRL_OUTPUT_PULSE:
+                case VIA_C2_CTRL_OUTPUT_HIGH:
+                    /* TODO: HW5 */
+                    via_write_c2_state(handle, true, true);
+                    break;
+                case VIA_C2_CTRL_OUTPUT_LOW:
+                    via_write_c2_state(handle, true, false);
+                default:
+                    /* TODO: HW5 */
+                    break;
+            }
+
+            switch(handle->pcr.bits.cb2_ctrl)
+            {
+                case VIA_C2_CTRL_OUTPUT_HANDSAKE:
+                case VIA_C2_CTRL_OUTPUT_PULSE:
+                case VIA_C2_CTRL_OUTPUT_HIGH:
+                    /* TODO: HW5 */
+                    via_write_c2_state(handle, false, true);
+                    break;
+                case VIA_C2_CTRL_OUTPUT_LOW:
+                    via_write_c2_state(handle, false, false);
+                default:
+                    /* TODO: HW5 */
+                    break;
+            }
             break;
         case IER:
             if(val & 0x80)
@@ -455,6 +644,22 @@ uint8_t via_read(via_t handle, uint8_t reg)
 
         case DATAA:
             via_clear_ifr(handle, IFR_CA1);
+
+            /* If CA2 is in handshake mode, generated the Data Taken signal
+             * for read handshaking. */
+            if(via_is_handshake_output(handle, true))
+            {
+                /* Read handshaking is triggered on read transaction as opposed
+                 * to write handshaking which happens on the next half phi2 cycle. */
+                via_write_c2_state(handle, true, false);
+
+                if(handle->pcr.bits.ca2_ctrl == VIA_C2_CTRL_OUTPUT_PULSE)
+                {
+                    /* If pulse output, flag for the pulse to end on the next
+                     * falling clock edge. */
+                    handle->flags |= VIA_FLAG_CA2_READ_PULSE_PEND;
+                }
+            }
 
             /* In reality, PORTA is a bit special in that output pins always read back
              * the physical pin state rather than the current output register state. In
@@ -615,6 +820,35 @@ uint8_t via_read_data_port(via_t handle, bool porta)
 
 bool via_read_ctrl(via_t handle, via_ctrl_pin_t pin)
 {
-    /* Not supported yet. */
-    return false;
+    via_port_state_t *port;
+    uint8_t c2_ctrl;
+
+    if(handle == NULL)
+    {
+        return false;
+    }
+
+    switch(pin)
+    {
+        case VIA_CA1:
+            return handle->porta.c1_in;
+        case VIA_CB1:
+            return handle->portb.c1_in;
+        case VIA_CA2:
+        case VIA_CB2:
+            port = (pin == VIA_CA2) ? &handle->porta : &handle->portb;
+            c2_ctrl = (pin == VIA_CA2) ? handle->pcr.bits.ca2_ctrl : handle->pcr.bits.cb2_ctrl;
+
+            if(c2_ctrl < VIA_C2_CTRL_OUTPUT_HANDSAKE)
+            {
+                return port->c2_in;
+            }
+            else
+            {
+                return port->c2_out;
+            }
+            break;
+        default:
+            return false;
+    }
 }

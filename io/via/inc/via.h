@@ -51,11 +51,12 @@ typedef void *via_cb_handle_t;
  */
 typedef void (*via_event_callback_t)(via_t via, const via_event_data_t *event, void *userdata);
 
-via_t via_init(void);
+via_t via_init(const cbemu_t emu);
 void via_cleanup(via_t handle);
-bool via_register(via_t handle, const cbemu_t emu, const bus_decode_params_t *decoder, uint16_t base, bool irq);
+bool via_register(via_t handle, const bus_decode_params_t *decoder, uint16_t base, bool irq);
 void via_write(via_t handle, uint8_t reg, uint8_t val);
 uint8_t via_read(via_t handle, uint8_t reg);
+void via_tick(via_t handle);
 
 via_cb_handle_t via_register_callback(via_t handle, via_event_callback_t callback, void *userdata);
 void via_unregister_callback(via_t handle, via_cb_handle_t cb_handle);
