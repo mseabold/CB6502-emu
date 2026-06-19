@@ -570,6 +570,107 @@ void test_portb_write_pulse(void)
     test_write_hs_pulse(true);
 }
 
+void test_t1_one_shot(void)
+{
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    /* Default state is one-shot, so just set up the timer. */
+    via_write(via, 0x4, 5);
+    via_write(via, 0x5, 0);
+
+    /* Expiration should take 5+1.5 cycles. Tick 6 times and make sure it hasn't
+     * expired. */
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+
+    emu_tick(emu);
+
+    /* Ensure the timer expired. */
+    TEST_ASSERT_BIT_HIGH(6, via_read(via, 0xD));
+
+    /* Reading back T1LL should not clear IFR6. */
+    via_read(via, 0x6);
+    TEST_ASSERT_BIT_HIGH(6, via_read(via, 0xD));
+
+    via_read(via, 0x4);
+
+    /* Ensure reading back T1CL clears IFR6. */
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+}
+
+void test_t1_continuous(void)
+{
+    emu = emu_init(&config);
+    TEST_ASSERT_NOT_NULL(emu);
+
+    via = via_init(emu);
+    TEST_ASSERT_NOT_NULL(via);
+
+    /* Put T1 into continuous mode. */
+    via_write(via, 0xB, 0x40);
+
+    via_write(via, 0x4, 5);
+    via_write(via, 0x5, 0);
+
+    /* Expiration should take 5+1.5 cycles. Tick 6 times and make sure it hasn't
+     * expired. */
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+
+    emu_tick(emu);
+
+    /* Ensure the timer expired. */
+    TEST_ASSERT_BIT_HIGH(6, via_read(via, 0xD));
+
+    /* Reading back T1LL should not clear IFR6. */
+    via_read(via, 0x6);
+    TEST_ASSERT_BIT_HIGH(6, via_read(via, 0xD));
+
+    via_read(via, 0x4);
+
+    /* Ensure reading back T1CL clears IFR6. */
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+
+    /* T1CL and T1CH should be loaded with latches again now. */
+    TEST_ASSERT_EQUAL_UINT8(5, via_read(via, 0x4));
+    TEST_ASSERT_EQUAL_UINT8(0, via_read(via, 0x5));
+
+    /* Click 6 more times. */
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+    emu_tick(emu);
+
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+
+    emu_tick(emu);
+
+    /* Ensure the timer expired. */
+    TEST_ASSERT_BIT_HIGH(6, via_read(via, 0xD));
+
+    /* Test that writing T1LH resets IFR6 */
+    via_write(via, 0x7, 0);
+    TEST_ASSERT_BIT_LOW(6, via_read(via, 0xD));
+}
+
 void setUp(void)
 {
 }
@@ -608,6 +709,8 @@ int main(int argc, char **argv)
     RUN_TEST(test_portb_write_hs);
     RUN_TEST(test_porta_write_pulse);
     RUN_TEST(test_portb_write_pulse);
+    RUN_TEST(test_t1_one_shot);
+    RUN_TEST(test_t1_continuous);
 
     return UNITY_END();
 }

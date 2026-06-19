@@ -39,6 +39,29 @@
  *       it triggered on every PORTA read?
  *
  *  HW7) Does DDR affect handshaking?
+ *
+ *  HW8) Datasheet for WDC conflicts for T1L-H. Register table says "high order latches", but description
+ *       under T1 Operation says "high order counter"
+ *
+ *  HW9) It's not clearly stated, but datasheet seems to imply that timer counters seem decrement on every
+ *       PHI2 edge regardless of timer state. Will implement this way, but need to check for sure. For T1
+ *       the implication is also that T1L->T1C loading happens at every underflow.
+ *
+ *  HW10) Datasheet shows T1 in continuous mode having IFR/PB7 set on PHI2 posedge for iteration 1 and
+ *        negedge for iteration 2. This doesn't make much sense and contradicts the timing diagram showing
+ *        N+1.5 cycles for iteration 1 and N+2 for iteration 2 implying the same edge. For now, assumption is
+ *        that the negedge in the diagram is incorrect.
+ *
+ *  HW11) Multiple T1-PB7 questions wrapped up here:
+ *      1 - What is the priority of T1 control over PB7 vs PORTB with DDRB7 set?
+ *      2 - Does T1 PB7 control work if DDRB7 is 0?
+ *      3 - Is T1 PB7 control an internal state regardless of ACR setting? I.e. is it toggling/being
+ *          set while the timer is running even if ACR7 is 0, and then setting ACR7 to 1 immediately
+ *          reflects this value? Or is the state re-initialized on chanding ACR. Current assumption is
+ *          internal state
+ *      4 - Datasheet diagrams always show PB7 starting high and then going low on T1 start. What if T1 is de-armed.
+ *          switched to one-shot while PB7 is low? Does it remain low? Does starting a new one-shot make it go high
+ *          for pulse mode?
  */
 
 #define DATAB 0x00
@@ -82,8 +105,37 @@ typedef struct
     uint8_t pb_latch : 1;
     uint8_t sr_ctrl : 3;
     uint8_t t2_ctrl : 1;
-    uint8_t t1_ctrl : 2;
+    uint8_t t1_mode : 1;
+    uint8_t t1_pb7 : 1;
 } acr_bits_t;
+
+/*
+ * 4 3 2 Operation
+0 0 0 Disabled
+0 0 1 Shift in under control of T2
+0 1 0 Shift in under control of PHI2
+0 1 1 Shift in under control of external clock
+1 0 0 Shift out free running at T2 rate
+1 0 1 Shift out under control of T2
+1 1 0 Shift out under control of PHI2
+1 1 1 Shift out under control of external clock
+*/
+#define VIA_ACR_SR_DISABLED     0x0
+#define VIA_ACR_SR_IN_T2        0x1
+#define VIA_ACR_SR_IN_PHI2      0x2
+#define VIA_ACR_SR_IN_EXT_CLK   0x3
+#define VIA_ACR_SR_OUT_FREE_T2  0x4
+#define VIA_ACR_SR_OUT_T2       0x5
+#define VIA_ACR_SR_OUT_PHI2     0x6
+#define VIA_ACR_SR_OUT_EXT_CLK  0x7
+
+#define VIA_ACR_T2_TIMED        0x0
+#define VIA_ACR_T2_PB6_PULSE    0x1
+
+#define VIA_ACR_T1_MODE_ONE_SHOT    0x0
+#define VIA_ACR_T1_MODE_CONT        0x1
+#define VIA_ACR_T1_PB7_DISABLED     0x0
+#define VIA_ACR_T1_PB7_ENABLED      0x1
 
 typedef struct
 {
@@ -138,6 +190,9 @@ struct via_s
     uint8_t ier;
     uint8_t ifr;
 
+    uint16_t t1l;
+    uint16_t t1c;
+
     uint32_t flags;
 
     clock_cb_handle_t clk_cb;
@@ -154,6 +209,13 @@ struct via_s
 #define VIA_FLAG_CA2_READ_PULSE_PEND    0x0004
 #define VIA_FLAG_CB2_TRIG_PEND          0x0008
 #define VIA_FLAG_CB2_PULSE_PEND         0x0010
+#define VIA_FLAG_T1_ARMED               0x0020
+#define VIA_FLAG_T2_ARMED               0x0040
+
+/* Helpers for readability */
+#define VIA_CHECK_FLAG(_handle, _flag)  ((_handle)->flags & (_flag))
+#define VIA_SET_FLAG(_handle, _flag)    ((_handle)->flags |= (_flag))
+#define VIA_CLEAR_FLAG(_handle, _flag)  ((_handle)->flags &= ~(_flag))
 
 #define VIA_FLAGS_CA_SHAKE_PEND     (VIA_FLAG_CA2_TRIG_PEND | VIA_FLAG_CA2_PULSE_PEND | VIA_FLAG_CA2_READ_PULSE_PEND)
 #define VIA_FLAGS_CB_SHAKE_PEND     (VIA_FLAG_CB2_TRIG_PEND | VIA_FLAG_CB2_PULSE_PEND)
@@ -399,6 +461,24 @@ static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
                 handle->flags |= VIA_FLAG_CB2_PULSE_PEND;
             }
         }
+
+        /* IFR/PB7 control of timers appears to happen on positive edge. */
+        /* TODO: HW10. */
+        if(VIA_CHECK_FLAG(handle, VIA_FLAG_T1_ARMED))
+        {
+            if(handle->t1c == 0xffff)
+            {
+                via_set_ifr(handle, IFR_T1);
+
+                /* TODO: PB7. */
+
+                if(handle->acr.bits.t1_mode == VIA_ACR_T1_MODE_ONE_SHOT)
+                {
+                    /* One shot timer, so deactivate it. */
+                    VIA_CLEAR_FLAG(handle, VIA_FLAG_T1_ARMED);
+                }
+            }
+        }
     }
     else
     {
@@ -407,6 +487,20 @@ static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
         {
             via_write_c2_state(handle, true, true);
             handle->flags &= VIA_FLAG_CA2_READ_PULSE_PEND;
+        }
+
+        /* TODO: HW9 */
+
+        /* Timer counter decrement happens at negedge. Note,
+         * for T1 the implication from HW9 is that every edge
+         * at 0xFFFF T1L->T1C loading occurs regardless of state. */
+        if(handle->t1c == 0xffff)
+        {
+            handle->t1c = handle->t1l;
+        }
+        else
+        {
+            handle->t1c--;
         }
     }
 }
@@ -570,6 +664,22 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 handle->flags |= VIA_FLAG_CB2_TRIG_PEND;
             }
             break;
+        case T1CL:
+            handle->t1l = (handle->t1l & 0xff00) | val;
+            break;
+        case T1CH:
+            handle->t1l = (handle->t1l & 0x00ff) | ((uint16_t)val << 8);
+            handle->t1c = handle->t1l;
+            via_clear_ifr(handle, IFR_T1);
+            VIA_SET_FLAG(handle, VIA_FLAG_T1_ARMED);
+            break;
+        case T1LL:
+            handle->t1l = (handle->t1l & 0xff00) | val;
+            break;
+        case T1LH:
+            handle->t1l = (handle->t1l & 0x00ff) | ((uint16_t)val << 8);
+            via_clear_ifr(handle, IFR_T1);
+            break;
         case ACR:
             handle->acr.val = val;
             break;
@@ -668,6 +778,16 @@ uint8_t via_read(via_t handle, uint8_t reg)
         case DATAB:
             via_clear_ifr(handle, IFR_CB1);
             return MERGE_BITS(handle->portb.or, handle->portb.ir, handle->portb.ddr);
+        case T1CL:
+            via_clear_ifr(handle, IFR_T1);
+            return (handle->t1c & 0xFF);
+        case T1CH:
+            return (handle->t1c >> 8);
+        case T1LL:
+            return (handle->t1l & 0xFF);
+        case T1LH:
+            /* TODO: HW8 */
+            return (handle->t1l >> 8);
         case ACR:
             return handle->acr.val;
         case PCR:
