@@ -62,6 +62,7 @@
  *      4 - Datasheet diagrams always show PB7 starting high and then going low on T1 start. What if T1 is de-armed.
  *          switched to one-shot while PB7 is low? Does it remain low? Does starting a new one-shot make it go high
  *          for pulse mode?
+ *      5 - Verify that re-arming timer before it expired does not invert PB7, only expiration.
  */
 
 #define DATAB 0x00
@@ -192,6 +193,7 @@ struct via_s
 
     uint16_t t1l;
     uint16_t t1c;
+    bool t1pb7;
 
     uint32_t flags;
 
@@ -419,6 +421,7 @@ static void via_handle_c1_edge(via_t handle, bool porta)
 
 static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
 {
+    via_event_data_t event;
     via_t handle = (via_t)userdata;
 
     if(handle == NULL)
@@ -470,7 +473,16 @@ static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
             {
                 via_set_ifr(handle, IFR_T1);
 
-                /* TODO: PB7. */
+                /* Just invert PB7. It doesnt matter here mode. */
+                handle->t1pb7 = !handle->t1pb7;
+
+                /* Inform callbacks of PB change if PB7 ourput is enabled. */
+                if(handle->acr.bits.t1_pb7 == VIA_ACR_T1_PB7_ENABLED)
+                {
+                    event.type = VIA_EV_PORT_CHANGE;
+                    event.data.port = VIA_PORTB;
+                    via_make_callbacks(handle, &event);
+                }
 
                 if(handle->acr.bits.t1_mode == VIA_ACR_T1_MODE_ONE_SHOT)
                 {
@@ -517,6 +529,9 @@ via_t via_init(const cbemu_t emu)
     memset(cxt, 0, sizeof(struct via_s));
     list_init(&cxt->callbacks);
     cxt->voter = BUS_SIGNAL_INVALID_VOTER;
+
+    /* HW11 */
+    cxt->t1pb7 = true;
 
     if(emu != NULL)
     {
@@ -600,6 +615,7 @@ bool via_register(via_t handle, const bus_decode_params_t *decoder, uint16_t bas
 
 void via_write(via_t handle, uint8_t reg, uint8_t val)
 {
+    acr_t old_acr;
     uint8_t ifr_bits;
     uint8_t old_val;
     uint8_t bits_to_latch;
@@ -671,6 +687,17 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             handle->t1l = (handle->t1l & 0x00ff) | ((uint16_t)val << 8);
             handle->t1c = handle->t1l;
             via_clear_ifr(handle, IFR_T1);
+
+            /* TODO: HW11#4. For now, just always set PB7 low on first arming.
+             *       Note that as far as I can tell re-arming the timer before it
+             *       expires does *not* change PB7 (HW11#5). */
+            if(!VIA_CHECK_FLAG(handle, VIA_FLAG_T1_ARMED))
+            {
+                handle->t1pb7 = false;
+                event.data.port = VIA_PORTB;
+                dispatch = true;
+            }
+
             VIA_SET_FLAG(handle, VIA_FLAG_T1_ARMED);
             break;
         case T1LL:
@@ -681,7 +708,17 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
             via_clear_ifr(handle, IFR_T1);
             break;
         case ACR:
+            /* Skip handling if value is not changing to prevent unnecessary callbacks. */
+            old_acr = handle->acr;
             handle->acr.val = val;
+
+            /* Handle T1 PB7 setting change. */
+            if(old_acr.bits.t1_pb7 != handle->acr.bits.t1_pb7)
+            {
+                /* Go ahead and make a callback that PB7 may have change. */
+                event.data.port = VIA_PORTB;
+                dispatch = true;
+            }
             break;
         case PCR:
             handle->pcr.val = val;
@@ -922,6 +959,7 @@ void via_write_ctrl(via_t handle, via_ctrl_pin_t pin, bool val)
 
 uint8_t via_read_data_port(via_t handle, bool porta)
 {
+    uint8_t val;
     if(handle == NULL)
     {
         return 0;
@@ -934,7 +972,20 @@ uint8_t via_read_data_port(via_t handle, bool porta)
     }
     else
     {
-        return MERGE_BITS(handle->portb.or, handle->portb.pin_in, handle->portb.ddr);
+        val = MERGE_BITS(handle->portb.or, handle->portb.pin_in, handle->portb.ddr);
+
+        /* If PB7 output for T1 is enabled, override PB7 with the internal T1 state (HW11) */
+        if(handle->acr.bits.t1_pb7 == VIA_ACR_T1_PB7_ENABLED)
+        {
+            val &= 0x7F;
+
+            if(handle->t1pb7)
+            {
+                val |= 0x80;
+            }
+        }
+
+        return val;
     }
 }
 
