@@ -412,7 +412,17 @@ void test_porta_read_pulse(void)
     /* Make sure the pin now reads back as output low. */
     TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
 
-    /* Tick the main clock once. */
+    /* Tick the main clock once. This is the tick that would match the bus
+     * read, so nothing should happen. */
+    emu_tick(emu);
+
+    /* Make sure nothing happened. */
+    TEST_ASSERT_EQUAL_UINT(2, events.numEvents);
+    TEST_ASSERT_EQUAL(VIA_EV_PORT_CHANGE, events.events[1].type);
+    TEST_ASSERT_EQUAL(VIA_CTRL, events.events[1].data.port);
+    TEST_ASSERT_FALSE(via_read_ctrl(via, VIA_CA2));
+
+    /* Now perform an additional tick. */
     emu_tick(emu);
 
     /* Clock single should have reset the pulse. */
@@ -582,6 +592,9 @@ void test_t1_one_shot(void)
     via_write(via, 0x4, 5);
     via_write(via, 0x5, 0);
 
+    /* Consume the negedge cycle associated with the bus write. */
+    emu_tick(emu);
+
     /* Expiration should take 5+1.5 cycles. Tick 6 times and make sure it hasn't
      * expired. */
     emu_tick(emu);
@@ -621,6 +634,9 @@ void test_t1_continuous(void)
 
     via_write(via, 0x4, 5);
     via_write(via, 0x5, 0);
+
+    /* Consume the negedge cycle associated with the bus write. */
+    emu_tick(emu);
 
     /* Expiration should take 5+1.5 cycles. Tick 6 times and make sure it hasn't
      * expired. */
@@ -743,6 +759,9 @@ void test_t1_pb7_oneshot(void)
     via_write(via, 0x4, 5);
     via_write(via, 0x5, 0);
 
+    /* Consume the negedge cycle associated with the bus write. */
+    emu_tick(emu);
+
     /* Make sure PB7 went low. */
     TEST_ASSERT_EQUAL(1, events.numEvents);
     TEST_ASSERT_EQUAL(VIA_PORTB, events.events[0].data.port);
@@ -806,6 +825,9 @@ void test_t1_pb7_cont(void)
     /* Start the timer. */
     via_write(via, 0x4, 3);
     via_write(via, 0x5, 0);
+
+    /* Consume the negedge cycle associated with the bus write. */
+    emu_tick(emu);
 
     /* Make sure PB7 went low. */
     TEST_ASSERT_EQUAL(1, events.numEvents);

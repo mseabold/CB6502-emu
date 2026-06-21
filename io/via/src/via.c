@@ -110,17 +110,6 @@ typedef struct
     uint8_t t1_pb7 : 1;
 } acr_bits_t;
 
-/*
- * 4 3 2 Operation
-0 0 0 Disabled
-0 0 1 Shift in under control of T2
-0 1 0 Shift in under control of PHI2
-0 1 1 Shift in under control of external clock
-1 0 0 Shift out free running at T2 rate
-1 0 1 Shift out under control of T2
-1 1 0 Shift out under control of PHI2
-1 1 1 Shift out under control of external clock
-*/
 #define VIA_ACR_SR_DISABLED     0x0
 #define VIA_ACR_SR_IN_T2        0x1
 #define VIA_ACR_SR_IN_PHI2      0x2
@@ -208,11 +197,14 @@ struct via_s
 
 #define VIA_FLAG_CA2_TRIG_PEND          0x0001
 #define VIA_FLAG_CA2_PULSE_PEND         0x0002
-#define VIA_FLAG_CA2_READ_PULSE_PEND    0x0004
-#define VIA_FLAG_CB2_TRIG_PEND          0x0008
-#define VIA_FLAG_CB2_PULSE_PEND         0x0010
-#define VIA_FLAG_T1_ARMED               0x0020
-#define VIA_FLAG_T2_ARMED               0x0040
+#define VIA_FLAG_CA2_READ_TRIG_PEND     0x0004
+#define VIA_FLAG_CA2_READ_PULSE_PEND    0x0008
+#define VIA_FLAG_CB2_TRIG_PEND          0x0010
+#define VIA_FLAG_CB2_PULSE_PEND         0x0020
+#define VIA_FLAG_T1_ARMED               0x0040
+#define VIA_FLAG_T2_ARMED               0x0080
+#define VIA_FLAG_T1_WRITE_PEND          0x0100
+#define VIA_FLAG_T2_WRITE_PEND          0x0200
 
 /* Helpers for readability */
 #define VIA_CHECK_FLAG(_handle, _flag)  ((_handle)->flags & (_flag))
@@ -495,24 +487,43 @@ static void via_clock_tick(clk_t clk, clock_edge_t edge, void *userdata)
     else
     {
         /* Read handshake pulsing happens at negedge. */
-        if(handle->flags & VIA_FLAG_CA2_READ_PULSE_PEND)
+        if(VIA_CHECK_FLAG(handle, VIA_FLAG_CA2_READ_PULSE_PEND))
         {
-            via_write_c2_state(handle, true, true);
-            handle->flags &= VIA_FLAG_CA2_READ_PULSE_PEND;
+            /* Note that due to implementation details of the emulator API, we get the
+             * bus read prior to the corresponding clock negedge. We already initiated the
+             * pulse on bus read, but we don't want to immediately kill it on this simultaneous
+             * edge. This extra flag prevents that, so now clear it. */
+            if(VIA_CHECK_FLAG(handle, VIA_FLAG_CA2_READ_TRIG_PEND))
+            {
+                VIA_CLEAR_FLAG(handle, VIA_FLAG_CA2_READ_TRIG_PEND);
+            }
+            else
+            {
+                via_write_c2_state(handle, true, true);
+                VIA_CLEAR_FLAG(handle, VIA_FLAG_CA2_READ_PULSE_PEND);
+            }
         }
 
         /* TODO: HW9 */
 
-        /* Timer counter decrement happens at negedge. Note,
-         * for T1 the implication from HW9 is that every edge
-         * at 0xFFFF T1L->T1C loading occurs regardless of state. */
-        if(handle->t1c == 0xffff)
+        /* Skip timer decrement if this is a negedge associated with the bus write. */
+        if(!VIA_CHECK_FLAG(handle, VIA_FLAG_T1_WRITE_PEND))
         {
-            handle->t1c = handle->t1l;
+            /* Timer counter decrement happens at negedge. Note,
+             * for T1 the implication from HW9 is that every edge
+             * at 0xFFFF T1L->T1C loading occurs regardless of state. */
+            if(handle->t1c == 0xffff)
+            {
+                handle->t1c = handle->t1l;
+            }
+            else
+            {
+                handle->t1c--;
+            }
         }
         else
         {
-            handle->t1c--;
+            VIA_CLEAR_FLAG(handle, VIA_FLAG_T1_WRITE_PEND);
         }
     }
 }
@@ -698,7 +709,7 @@ void via_write(via_t handle, uint8_t reg, uint8_t val)
                 dispatch = true;
             }
 
-            VIA_SET_FLAG(handle, VIA_FLAG_T1_ARMED);
+            VIA_SET_FLAG(handle, (VIA_FLAG_T1_ARMED | VIA_FLAG_T1_WRITE_PEND));
             break;
         case T1LL:
             handle->t1l = (handle->t1l & 0xff00) | val;
@@ -804,7 +815,7 @@ uint8_t via_read(via_t handle, uint8_t reg)
                 {
                     /* If pulse output, flag for the pulse to end on the next
                      * falling clock edge. */
-                    handle->flags |= VIA_FLAG_CA2_READ_PULSE_PEND;
+                    VIA_SET_FLAG(handle, (VIA_FLAG_CA2_READ_TRIG_PEND | VIA_FLAG_CA2_READ_PULSE_PEND));
                 }
             }
 
